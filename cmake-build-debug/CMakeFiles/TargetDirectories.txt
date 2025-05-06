@@ -1,3 +1,0 @@
-/home/work/clionProject/dpdk-based-nids/cmake-build-debug/CMakeFiles/dpdk_based_nids.dir
-/home/work/clionProject/dpdk-based-nids/cmake-build-debug/CMakeFiles/edit_cache.dir
-/home/work/clionProject/dpdk-based-nids/cmake-build-debug/CMakeFiles/rebuild_cache.dir
