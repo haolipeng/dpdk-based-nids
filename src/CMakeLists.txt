@@ -1,50 +1,76 @@
-# C源文件 - DPDK核心功能和其他C模块
-set(C_SRC_FILES
+# src目录CMakeLists.txt
+# 使用根目录配置的DPDK变量
+
+# 检查DPDK是否已配置
+if(NOT DEFINED DPDK_INCLUDE_DIRS)
+    message(FATAL_ERROR "DPDK configuration not found. Please ensure DPDK is properly configured in parent CMakeLists.txt")
+endif()
+
+# 源文件列表
+set(SRC_FILES
     main.c
-    plugin_framework.c
-    dpdk_capture.c
+    global_data.c
+    pidfile.c
+    common.c
 )
 
-# C头文件
-set(C_HEADER_FILES
-    plugin_framework.h
-    dpdk_capture.h
+# 头文件列表
+set(HEADER_FILES
+    dpdk.h
+    global_data.h
+    pidfile.h
+    conf/common.h
 )
 
-# 创建接口库，用于处理C和C++之间的交互
-add_library(netdefender_core INTERFACE)
-target_include_directories(netdefender_core INTERFACE
+# 创建可执行文件
+add_executable(dpdk_nids ${SRC_FILES})
+
+# 设置包含目录 - 使用根目录配置的DPDK_INCLUDE_DIRS
+target_include_directories(dpdk_nids PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/include
     ${DPDK_INCLUDE_DIRS}
 )
 
-# 创建主程序可执行文件
-add_executable(netdefender ${C_SRC_FILES})
-
-# 设置包含目录
-target_include_directories(netdefender PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/include
-    ${DPDK_INCLUDE_DIRS}
+# 设置DPDK特定的编译选项
+target_compile_options(dpdk_nids PRIVATE
+    -march=native
+    -DRTE_MACHINE_CPUFLAG_SSE
+    -DRTE_MACHINE_CPUFLAG_SSE2
+    -DRTE_MACHINE_CPUFLAG_SSE3
+    -DRTE_MACHINE_CPUFLAG_SSSE3
+    -DRTE_MACHINE_CPUFLAG_SSE4_1
+    -DRTE_MACHINE_CPUFLAG_SSE4_2
 )
 
-# C模块使用的链接库
-target_link_libraries(netdefender PRIVATE
+# 链接库设置 - 使用根目录配置的DPDK_LIBRARY_DIRS（如果存在）
+if(DEFINED DPDK_LIBRARY_DIRS)
+    target_link_directories(dpdk_nids PRIVATE ${DPDK_LIBRARY_DIRS})
+endif()
+
+# 链接DPDK库和系统库
+target_link_libraries(dpdk_nids PRIVATE
+    # 使用根目录配置的DPDK库
     ${DPDK_LIBRARIES}
-    -lnuma
-    -lpthread
-    -ldl
-    -lm
-    -lrt
+    
+    # 系统依赖库
+    numa
+    pthread
+    dl
+    m
+    rt
 )
 
-# 添加链接器选项
-set_target_properties(netdefender PROPERTIES
-    LINK_FLAGS "-Wl,--no-as-needed"
+# 设置链接器选项
+set_target_properties(dpdk_nids PROPERTIES
+    LINK_FLAGS "-Wl,--no-as-needed -Wl,--export-dynamic"
 )
 
-# 安装可执行文件
-install(TARGETS netdefender
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+# 安装目标
+install(TARGETS dpdk_nids
+    RUNTIME DESTINATION bin
+)
+
+# 安装头文件
+install(FILES ${HEADER_FILES}
+    DESTINATION include
 ) 
