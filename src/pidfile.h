@@ -14,6 +14,6 @@ int pidfile_write(const char *pid_file, int pid);
 
 void pidfile_rm(const char *pid_file);
 
-bool dpvs_running(const char *pid_file);
+bool netdefender_running(const char *pid_file);
 
 #endif

@@ -1,8 +1,6 @@
 #include <stdio.h>
 #include <signal.h>
 #include <stdbool.h>
-#include <netdefender/dpdk_init.h>
-#include <netdefender/packet_capture.h>
 #include <rte_ether.h>
 #include <rte_ip.h>
 #include <rte_tcp.h>

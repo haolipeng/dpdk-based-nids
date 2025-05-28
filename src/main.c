@@ -11,20 +11,20 @@
 static void dpdk_version_check(void)
 {
 #if RTE_VERSION < RTE_VERSION_NUM(24, 11, 0, 0)
-    rte_panic("The current DPVS requires dpdk-stable-24.11 or higher. "
+    rte_panic("The current netdefender requires dpdk-stable-24.11 or higher. "
             "Try old releases if you are using earlier dpdk versions.");
 #endif
 }
 
-static void dpvs_usage(const char *prgname)
+static void netdefender_usage(const char *prgname)
 {
     printf("\nUsage: %s ", prgname);
-    printf("DPVS application options:\n"
-            "   -v, --version           display DPVS version info\n"
-            "   -c, --conf FILE         specify config file for DPVS\n"
-            "   -p, --pid-file FILE     specify pid file of DPVS process\n"
-            "   -x, --ipc-file FILE     specify unix socket file for ipc communication between DPVS and Tools\n"
-            "   -h, --help              display DPVS help info\n"
+    printf("netdefender application options:\n"
+            "   -v, --version           display netdefender version info\n"
+            "   -c, --conf FILE         specify config file for netdefender\n"
+            "   -p, --pid-file FILE     specify pid file of netdefender process\n"
+            "   -x, --ipc-file FILE     specify unix socket file for ipc communication between netdefender and Tools\n"
+            "   -h, --help              display netdefender help info\n"
     );
 }
 
@@ -52,25 +52,25 @@ static int parse_app_args(int argc, char **argv)
     while ((c = getopt_long(argc, argv, short_options, long_options, NULL)) != -1) {
         switch (c) {
             case 'v':
-                fprintf(stderr, "dpvs version: %s, build on %s\n",
-                        DPVS_VERSION,
-                        DPVS_BUILD_DATE);
+                fprintf(stderr, "netdefender version: %s, build on %s\n",
+                        NET_DEFENSER_VERSION,
+                        NET_DEFENSER_BUILD_DATE);
                 exit(EXIT_SUCCESS);
             case 'c':
-                dpvs_conf_file=optarg;
+                netdefender_conf_file=optarg;
                 break;
             case 'p':
-                dpvs_pid_file=optarg;
+                netdefender_pid_file=optarg;
                 break;
             case 'x':
-                dpvs_ipc_file=optarg;
+                netdefender_ipc_file=optarg;
                 break;
             case 'h':
-                dpvs_usage(prgname);
+                netdefender_usage(prgname);
                 exit(EXIT_SUCCESS);
             case '?':
             default:
-                dpvs_usage(prgname);
+                netdefender_usage(prgname);
                 exit(EXIT_FAILURE);
         }
     }
@@ -86,14 +86,14 @@ static int parse_app_args(int argc, char **argv)
     optarg = old_optarg;
 
     /* check */
-    if (!dpvs_conf_file)
-        dpvs_conf_file="/etc/dpvs.conf";
-    if (!dpvs_pid_file)
-        dpvs_pid_file="/var/run/dpvs.pid";
-    if (!dpvs_ipc_file)
-        dpvs_ipc_file="/var/run/dpvs.ipc";
+    if (!netdefender_conf_file)
+        netdefender_conf_file="/etc/netdefender.conf";
+    if (!netdefender_pid_file)
+        netdefender_pid_file="/var/run/netdefender.pid";
+    if (!netdefender_ipc_file)
+        netdefender_ipc_file="/var/run/netdefender.ipc";
 
-    g_version = version_parse(DPVS_VERSION);
+    g_version = version_parse(NET_DEFENSER_VERSION);
 
     return ret;
 }
@@ -122,12 +122,12 @@ int main(int argc, char *argv[])
     argc -= err, argv += err;
 
     /* check if NetDefender is running */
-    if (dpvs_running(dpvs_pid_file)) {
-        fprintf(stderr, "dpvs is already running\n");
+    if (netdefender_running(netdefender_pid_file)) {
+        fprintf(stderr, "netdefender is already running\n");
         exit(EXIT_FAILURE);
     }
 
-    dpvs_state_set(DPVS_STATE_INIT);
+    netdefender_state_set(NET_DEFENSER_STATE_INIT);
     // TODO: 初始化DPDK环境
     
     // TODO: 配置和启动数据包捕获

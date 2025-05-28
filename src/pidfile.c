@@ -27,7 +27,7 @@ void pidfile_rm(const char *pid_file)
 }
 
 /* Return the running state */
-bool dpvs_running(const char *pid_file)
+bool netdefender_running(const char *pid_file)
 {
     FILE *pidfile = fopen(pid_file, "r");
     pid_t pid;

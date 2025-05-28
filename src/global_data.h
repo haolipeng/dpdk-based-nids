@@ -4,9 +4,9 @@
 #include <string.h>
 #include <stdlib.h>
 
-extern char *dpvs_pid_file;
-extern char *dpvs_ipc_file;
-extern char *dpvs_conf_file;
+extern char *netdefender_pid_file;
+extern char *netdefender_ipc_file;
+extern char *netdefender_conf_file;
 
 extern unsigned int g_version;
 

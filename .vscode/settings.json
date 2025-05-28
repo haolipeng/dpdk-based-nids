@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "global_data.h": "c"
+        "global_data.h": "c",
+        "rte_udp.h": "c"
     }
 }

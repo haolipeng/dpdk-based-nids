@@ -93,8 +93,8 @@ add_compile_options(
     -Wextra
     -Werror
     -O2
-    -DDPVS_VERSION="${VERSION_STRING}"
-    -DDPVS_BUILD_DATE="${DATE_STRING}"
+    -DNET_DEFENSER_VERSION="${VERSION_STRING}"
+    -DNET_DEFENSER_BUILD_DATE="${DATE_STRING}"
 )
 
 # 特定语言的编译选项

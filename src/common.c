@@ -1,13 +1,13 @@
 #include "common.h"
 
-static dpvs_state_t g_dpvs_tate = DPVS_STATE_STOP;
+static netdefender_state_t g_netdefender_tate = NET_DEFENSER_STATE_STOP;
 
-void dpvs_state_set(dpvs_state_t stat)
+void netdefender_state_set(netdefender_state_t stat)
 {
-    g_dpvs_tate = stat;
+    g_netdefender_tate = stat;
 }
 
-dpvs_state_t dpvs_state_get(void)
+netdefender_state_t netdefender_state_get(void)
 {
-    return g_dpvs_tate;
+    return g_netdefender_tate;
 }

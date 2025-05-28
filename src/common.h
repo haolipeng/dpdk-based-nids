@@ -78,13 +78,13 @@ typedef uint16_t queueid_t;
 #endif
 
 typedef enum {
-    DPVS_STATE_STOP = 1,
-    DPVS_STATE_INIT,
-    DPVS_STATE_NORMAL,
-    DPVS_STATE_FINISH,
-} dpvs_state_t;
+    NET_DEFENSER_STATE_STOP = 1,
+    NET_DEFENSER_STATE_INIT,
+    NET_DEFENSER_STATE_NORMAL,
+    NET_DEFENSER_STATE_FINISH,
+} netdefender_state_t;
 
-void dpvs_state_set(dpvs_state_t stat);
-dpvs_state_t dpvs_state_get(void);
+void netdefender_state_set(netdefender_state_t stat);
+netdefender_state_t netdefender_state_get(void);
 
 #endif

@@ -5,9 +5,9 @@
 #include "global_data.h"
 #include "common.h"
 
-char *dpvs_pid_file;
-char *dpvs_ipc_file;
-char *dpvs_conf_file;
+char *netdefender_pid_file;
+char *netdefender_ipc_file;
+char *netdefender_conf_file;
 
 unsigned int g_version = 0;
 
