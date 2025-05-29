@@ -12,6 +12,8 @@ set(SRC_FILES
     global_data.c
     pidfile.c
     common.c
+    scheduler.c
+    netif.c
 )
 
 # 头文件列表
@@ -19,11 +21,13 @@ set(HEADER_FILES
     dpdk.h
     global_data.h
     pidfile.h
-    conf/common.h
+    common.h
+    scheduler.h
+    netif.h
 )
 
 # 创建可执行文件
-add_executable(dpdk_nids ${SRC_FILES})
+add_executable(dpdk_nids ${SRC_FILES} ${HEADER_FILES})
 
 # 设置包含目录 - 使用根目录配置的DPDK_INCLUDE_DIRS
 target_include_directories(dpdk_nids PRIVATE

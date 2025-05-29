@@ -8,12 +8,70 @@
 #include "global_data.h"
 #include "common.h"
 #include "pidfile.h"
+#include "scheduler.h"
+#include "netif.h"
+
 static void dpdk_version_check(void)
 {
 #if RTE_VERSION < RTE_VERSION_NUM(24, 11, 0, 0)
     rte_panic("The current netdefender requires dpdk-stable-24.11 or higher. "
             "Try old releases if you are using earlier dpdk versions.");
 #endif
+}
+
+#define DPVS_MODULES {                                          \
+        DPVS_MODULE(MODULE_FIRST,       "scheduler",            \
+                    dpvs_scheduler_init, dpvs_scheduler_term),  \
+        DPVS_MODULE(MODULE_NETIF,       "netif",                \
+                    netif_init,          netif_term),           \
+        DPVS_MODULE(MODULE_LAST,        "last",                 \
+                    NULL,                NULL)                  \
+    }
+
+#define DPVS_MODULE(a, b, c, d)  a
+enum dpvs_modules DPVS_MODULES;
+#undef DPVS_MODULE
+
+#define DPVS_MODULE(a, b, c, d)  b
+static const char *dpvs_modules[] = DPVS_MODULES;
+#undef DPVS_MODULE
+
+typedef int (*dpvs_module_init_pt)(void);
+typedef int (*dpvs_module_term_pt)(void);
+
+#define DPVS_MODULE(a, b, c, d)  c
+dpvs_module_init_pt dpvs_module_inits[] = DPVS_MODULES;
+#undef DPVS_MODULE
+
+#define DPVS_MODULE(a, b, c, d)  d
+dpvs_module_term_pt dpvs_module_terms[] = DPVS_MODULES;
+
+static void modules_init(void)
+{
+    int m, err;
+
+    for (m = MODULE_FIRST; m <= MODULE_LAST; m++) {
+        if (dpvs_module_inits[m]) {
+            if ((err = dpvs_module_inits[m]()) != ENDF_OK) {
+                rte_exit(EXIT_FAILURE, "failed to init %s: %s\n",
+                         dpvs_modules[m], dpvs_strerror(err));
+            }
+        }
+    }
+}
+
+static void modules_term(void)
+{
+    int m, err;
+
+    for (m = MODULE_LAST ; m >= MODULE_FIRST; m--) {
+        if (dpvs_module_terms[m]) {
+            if ((err = dpvs_module_terms[m]()) != ENDF_OK) {
+                rte_exit(EXIT_FAILURE, "failed to term %s: %s\n",
+                         dpvs_modules[m], dpvs_strerror(err));
+            }
+        }
+    }
 }
 
 static void netdefender_usage(const char *prgname)
@@ -98,6 +156,8 @@ static int parse_app_args(int argc, char **argv)
     return ret;
 }
 
+#define NDF_MAX_SOCKET 32
+
 /**
  * NetDefender主程序入口
  * 基于DPDK的高性能网络入侵检测系统
@@ -128,13 +188,31 @@ int main(int argc, char *argv[])
     }
 
     netdefender_state_set(NET_DEFENSER_STATE_INIT);
-    // TODO: 初始化DPDK环境
+    if(get_numa_nodes() > NDF_MAX_SOCKET){
+        fprintf(stderr, "DPVS_MAX_SOCKET is smaller than system numa nodes!\n");
+        return -1;
+    }
+
+    // 初始化DPDK环境
+    err = rte_eal_init(argc, argv);
+    if(err < 0){
+        rte_exit(EXIT_FAILURE, "Invalid EAL parameters\n");
+        goto end;
+    }
     
+    //初始化定时器系统
+    rte_timer_subsystem_init();
+
+    modules_init();
+
     // TODO: 配置和启动数据包捕获
     
     // TODO: 初始化检测引擎
     
     // TODO: 主事件循环
+end:
+    netdefender_state_set(NET_DEFENSER_STATE_FINISH);
+    modules_term();
     
     return 0;
 }
