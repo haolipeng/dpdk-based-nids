@@ -168,10 +168,9 @@ int main(int argc, char *argv[])
     
     dpdk_version_check();
 
-    int err;
-    //int err, nports;
-    //portid_t pid;
-    //struct netif_port *dev;
+    int err, nports;
+    portid_t pid;
+    struct netif_port *dev;
     //struct timeval tv;
 
     err = parse_app_args(argc, argv);
@@ -205,8 +204,11 @@ int main(int argc, char *argv[])
 
     modules_init();
 
-    // TODO: 配置和启动数据包捕获
-    
+    // 获取当前设备的可用端口数
+    nports = ndf_rte_eth_dev_count();
+    for(pid = 0; pid < nports; pid++){
+        
+    }
     // TODO: 初始化检测引擎
     
     // TODO: 主事件循环
