@@ -1,0 +1,13 @@
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/CMakeFiles/edit_cache.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/CMakeFiles/rebuild_cache.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/CMakeFiles/list_install_components.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/CMakeFiles/install.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/CMakeFiles/install/local.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/CMakeFiles/install/strip.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/src/CMakeFiles/dpdk_nids.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/src/CMakeFiles/edit_cache.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/src/CMakeFiles/rebuild_cache.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/src/CMakeFiles/list_install_components.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/src/CMakeFiles/install.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/src/CMakeFiles/install/local.dir
+/home/work/clionProject/QingtengCode/dpdk-based-nids/build/src/CMakeFiles/install/strip.dir
