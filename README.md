@@ -123,4 +123,35 @@ NetDefender/
 
 ## 许可证
 
-本项目采用MIT许可证 - 详情请查看 [LICENSE](LICENSE) 文件 
+本项目采用MIT许可证 - 详情请查看 [LICENSE](LICENSE) 文件
+
+## 构建配置选项
+
+### NDF_MAX_SOCKET 配置
+
+`NDF_MAX_SOCKET` 定义了系统支持的最大套接字数量。您可以通过以下方式配置：
+
+#### 使用 CMake 命令行参数：
+```bash
+cmake .. -DNDF_MAX_SOCKET=4
+```
+
+#### 使用 CMake GUI 或 ccmake：
+在配置界面中设置 `NDF_MAX_SOCKET` 变量的值。
+
+#### 默认值：
+如果未指定，默认值为 32。
+
+#### 示例：
+```bash
+# 设置最大套接字数为 4
+mkdir build && cd build
+cmake .. -DNDF_MAX_SOCKET=4
+make
+
+# 设置最大套接字数为 16  
+cmake .. -DNDF_MAX_SOCKET=16
+make
+```
+
+这个配置选项替代了之前在 `src/common.h` 中的硬编码宏定义，使得在不修改源代码的情况下就能调整系统参数。 

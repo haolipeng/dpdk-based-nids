@@ -7,6 +7,11 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+// NDF_MAX_SOCKET 现在通过 CMake 构建系统定义
+#ifndef NDF_MAX_SOCKET
+#define NDF_MAX_SOCKET 4  // 备用默认值
+#endif
+
 typedef uint32_t sockoptid_t;
 
 #ifndef NELEMS

@@ -22,6 +22,9 @@ option(ENABLE_ASAN "Enable address sanitizer" OFF)
 # 项目架构选项
 option(ENABLE_CPP_MODULES "Enable C++ implementation for specified modules" OFF)
 
+# 配置选项
+set(NDF_MAX_SOCKET 32 CACHE STRING "Maximum number of sockets")
+
 # 支持C和C++之间的相互调用
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -93,8 +96,11 @@ add_compile_options(
     -Wextra
     -Werror
     -O2
+    -Wno-unused-variable
+    -Wno-unused-function
     -DNET_DEFENSER_VERSION="${VERSION_STRING}"
     -DNET_DEFENSER_BUILD_DATE="${DATE_STRING}"
+    -DNDF_MAX_SOCKET=${NDF_MAX_SOCKET}
 )
 
 # 特定语言的编译选项

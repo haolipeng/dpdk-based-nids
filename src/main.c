@@ -156,8 +156,6 @@ static int parse_app_args(int argc, char **argv)
     return ret;
 }
 
-#define NDF_MAX_SOCKET 32
-
 /**
  * NetDefender主程序入口
  * 基于DPDK的高性能网络入侵检测系统
@@ -170,7 +168,7 @@ int main(int argc, char *argv[])
 
     int err, nports;
     portid_t pid;
-    struct netif_port *dev;
+    //struct netif_port *dev;
     //struct timeval tv;
 
     err = parse_app_args(argc, argv);
