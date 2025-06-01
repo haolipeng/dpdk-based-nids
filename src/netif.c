@@ -46,5 +46,8 @@ static void lcore_job_recv_fwd(void* arg){
     cid = rte_lcore_id();
     assert(cid != LCORE_ID_ANY);
 
-    for(i = 0; i < lcore)
+    //for (i = 0; i < lcore_conf[lcore2index[cid]].nports; i++)
+    {
+
+    }
 }

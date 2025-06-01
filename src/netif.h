@@ -5,6 +5,12 @@
 
 #include "dpdk.h"
 
+/* max tx/rx queue number for each nic */
+#define NETIF_MAX_QUEUES            16
+
+/* maximum pkt number at a single burst */
+#define NETIF_MAX_PKT_BURST         32
+
 #ifndef NDF_MAX_LCORE
 #define NDF_MAX_LCORE RTE_MAX_LCORE
 #endif
@@ -12,13 +18,28 @@
 /* maximum number of DPDK rte device */
 #define NETIF_MAX_RTE_PORTS         64
 
+/* rx/tx queue conf for lcore */
+struct netif_queue_conf
+{
+    queueid_t id;
+    uint16_t len;
+    struct rte_mbuf* mbufs[NETIF_MAX_PKT_BURST];
+}__rte_cache_aligned;
+
+/*
+ *rx/tx port conf for lcore.
+ *multiple queues of a port may be processed by a lcore
+ */
 struct netif_port_conf{
     portid_t id;
     /* rx/tx queues for this lcore to process */
     int nrxq;
     int ntxq;
-    //TODO:
-}
+    
+    /* rx/tx queue list for this lcore to process */
+    struct netif_queue_conf rxqs[NETIF_MAX_QUEUES];
+    struct netif_queue_conf txqs[NETIF_MAX_QUEUES];
+}__rte_cache_aligned;
 
 //lcore conf
 //多个端口可能被一个lcore核心处理
@@ -28,8 +49,8 @@ struct netif_lcore_conf
     enum ndf_lcore_role_type type;
     
     int ports; //此lcore处理的nic数量
-    struct netif_port_conf pqsp[NETIF_MAX_RTE_PORTS];
-};
+    struct netif_port_conf pqs[NETIF_MAX_RTE_PORTS];
+}__rte_cache_aligned;
 
 struct netif_port {
     char name[IFNAMSIZ];
@@ -37,6 +58,7 @@ struct netif_port {
     int n_rxq; //rx queue number
     int n_txq; //tx queue number
     int socket; //socket id
+    struct rte_ether_addr   addr;                       /* MAC address */
     uint16_t mtu;
     struct rte_mempool  *mbuf_pool; //packet mempool
 };
