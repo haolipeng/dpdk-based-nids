@@ -25,15 +25,15 @@ int get_numa_nodes(void){
     return (numa_nodes + 1);
 }
 
-struct dpvs_err_tab {
+struct ndf_err_tab {
     int errcode;
     const char *errmsg;
 };
 
-const char *dpvs_strerror(int err)
+const char *ndf_strerror(int err)
 {
     /* TODO: "per-lcorelize" it */
-    static const struct dpvs_err_tab err_tab[] = {
+    static const struct ndf_err_tab err_tab[] = {
         { ENDF_OK,             "OK" },
         { ENDF_INVAL,          "invalid parameter" },
         { ENDF_NOMEM,          "no memory" },

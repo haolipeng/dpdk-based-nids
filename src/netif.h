@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <linux/if.h>
 
+#include "global_data.h"
 #include "dpdk.h"
 
 /* max tx/rx queue number for each nic */

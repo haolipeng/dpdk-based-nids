@@ -1,11 +1,11 @@
 #include "common.h"
 
-int dpvs_scheduler_init(void)
+int ndf_scheduler_init(void)
 {
     return ENDF_OK;
 }
 
-int dpvs_scheduler_term(void)
+int ndf_scheduler_term(void)
 {
     return ENDF_OK;
 }

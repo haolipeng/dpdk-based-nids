@@ -38,15 +38,52 @@ static void netif_pktmbuf_pool_init(){
 /****************************************** lcore  conf ********************************************/
 /* worker configuration array */
 static struct netif_lcore_conf lcore_conf[NDF_MAX_LCORE];
+lcoreid_t lcore2index[NDF_MAX_LCORE + 1]; //维护port索引和lcore索引的映射关系
 
-static void lcore_job_recv_fwd(void* arg){
+static int lcore_index_init(void)
+{
+    lcoreid_t cid;
+    int i;
+
+    for(i = 0; i <= NDF_MAX_LCORE; i++){
+        lcore2index[i] = NDF_MAX_LCORE;
+    }
+
+    for(i = 0; lcore_conf[i].ports > 0; i++){
+        cid = lcore_conf[i].id;
+        if(!rte_lcore_is_enabled(cid))
+            return ENDF_NONEALCORE;
+        lcore2index[cid] = i;
+    }
+
+#ifdef CONFIG_NDF_NETIF_DEBUG
+    printf("lcore fast searching table: \n");
+    for (i = 0; i <= NDF_MAX_LCORE; i++) {
+        if (lcore2index[i] != NDF_MAX_LCORE)
+            printf("\tcid: %2d --> %2d\n", i, lcore2index[i]);
+    }
+#endif
+}
+
+static void netif_lcore_init(){
+    int i, err;
+    lcoreid_t cid;
+
+    //build lcore fst searching table
+    err = lcore_index_init();
+    if(err != ENDF_OK){
+        rte_exit(EXIT_FAILURE, "%s: lcore_index_init failed (cause: %s), exit ...\n",
+                __func__, ndf_strerror(err));
+    }
+}
+
+static void lcore_job_recv_fwd(/* void* arg */){
     int i,j;
     lcoreid_t cid;
 
     cid = rte_lcore_id();
-    assert(cid != LCORE_ID_ANY);
 
-    //for (i = 0; i < lcore_conf[lcore2index[cid]].nports; i++)
+    for (i = 0; i < lcore_conf[lcore2index[cid]].ports; i++)
     {
 
     }

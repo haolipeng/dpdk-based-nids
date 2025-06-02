@@ -92,7 +92,7 @@ typedef enum {
 void netdefender_state_set(netdefender_state_t stat);
 netdefender_state_t netdefender_state_get(void);
 
-const char *dpvs_strerror(int err);
+const char *ndf_strerror(int err);
 
 enum {
     ENDF_OK            = 0,

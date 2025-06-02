@@ -21,7 +21,7 @@ static void dpdk_version_check(void)
 
 #define DPVS_MODULES {                                          \
         DPVS_MODULE(MODULE_FIRST,       "scheduler",            \
-                    dpvs_scheduler_init, dpvs_scheduler_term),  \
+                    ndf_scheduler_init, ndf_scheduler_term),  \
         DPVS_MODULE(MODULE_NETIF,       "netif",                \
                     netif_init,          netif_term),           \
         DPVS_MODULE(MODULE_LAST,        "last",                 \
@@ -54,7 +54,7 @@ static void modules_init(void)
         if (dpvs_module_inits[m]) {
             if ((err = dpvs_module_inits[m]()) != ENDF_OK) {
                 rte_exit(EXIT_FAILURE, "failed to init %s: %s\n",
-                         dpvs_modules[m], dpvs_strerror(err));
+                         dpvs_modules[m], ndf_strerror(err));
             }
         }
     }
@@ -68,7 +68,7 @@ static void modules_term(void)
         if (dpvs_module_terms[m]) {
             if ((err = dpvs_module_terms[m]()) != ENDF_OK) {
                 rte_exit(EXIT_FAILURE, "failed to term %s: %s\n",
-                         dpvs_modules[m], dpvs_strerror(err));
+                         dpvs_modules[m], ndf_strerror(err));
             }
         }
     }
