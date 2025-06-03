@@ -6,10 +6,15 @@
 #include <ctype.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <rte_lcore.h>
 
 // NDF_MAX_SOCKET 现在通过 CMake 构建系统定义
 #ifndef NDF_MAX_SOCKET
 #define NDF_MAX_SOCKET 4  // 备用默认值
+#endif
+
+#ifndef NDF_MAX_LCORE
+#define NDF_MAX_LCORE RTE_MAX_LCORE
 #endif
 
 typedef uint32_t sockoptid_t;

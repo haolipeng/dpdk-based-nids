@@ -2,6 +2,7 @@
     "files.associations": {
         "global_data.h": "c",
         "rte_udp.h": "c",
-        "scheduler.h": "c"
+        "scheduler.h": "c",
+        "common.h": "c"
     }
 }

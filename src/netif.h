@@ -9,12 +9,14 @@
 /* max tx/rx queue number for each nic */
 #define NETIF_MAX_QUEUES            16
 
+/* max nic number used in the program */
+#define NETIF_MAX_PORTS             4096
+
+#define NETIF_PORT_ID_INVALID       NETIF_MAX_PORTS
+#define NETIF_PORT_ID_ALL           NETIF_PORT_ID_INVALID
+
 /* maximum pkt number at a single burst */
 #define NETIF_MAX_PKT_BURST         32
-
-#ifndef NDF_MAX_LCORE
-#define NDF_MAX_LCORE RTE_MAX_LCORE
-#endif
 
 /* maximum number of DPDK rte device */
 #define NETIF_MAX_RTE_PORTS         64
@@ -49,7 +51,7 @@ struct netif_lcore_conf
     lcoreid_t id;
     enum ndf_lcore_role_type type;
     
-    int ports; //此lcore处理的nic数量
+    int nports; //此lcore处理的nic数量
     struct netif_port_conf pqs[NETIF_MAX_RTE_PORTS];
 }__rte_cache_aligned;
 

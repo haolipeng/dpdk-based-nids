@@ -9,6 +9,10 @@ char *netdefender_pid_file;
 char *netdefender_ipc_file;
 char *netdefender_conf_file;
 
+ndf_lcore_role_t g_lcore_role[NDF_MAX_LCORE];
+int g_lcore_index2id[NDF_MAX_LCORE];//建立逻辑核心id和数组索引之间的关系
+int g_lcore_id2index[NDF_MAX_LCORE];//建立数组索引和逻辑核心id之间的关系
+int g_lcore_num; //记录使用的逻辑核心的数量
 unsigned int g_version = 0;
 
 int version_parse(const char *strver)
