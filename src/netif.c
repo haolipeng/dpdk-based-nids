@@ -26,22 +26,22 @@ int netif_pktpool_mbuf_cache = NETIF_PKTPOOL_MBUF_CACHE_DEF;
 #define RTE_LOGTYPE_NETIF RTE_LOGTYPE_USER1
 
 struct port_conf_stream {
-    int port_id;
-    char name[32];
+    int port_id;                    // 端口ID，用于标识网络端口
+    char name[32];                  // 端口名称，最大32字符
 
-    int rx_queue_nb;
-    int rx_desc_nb;
-    char rss[32];
-    int mtu;
+    int rx_queue_nb;                // 接收队列数量
+    int rx_desc_nb;                 // 接收描述符数量
+    char rss[32];                   // RSS(Receive Side Scaling)配置，用于多队列负载均衡
+    int mtu;                        // 最大传输单元(Maximum Transmission Unit)
 
-    int tx_queue_nb;
-    int tx_desc_nb;
-    bool tx_mbuf_fast_free;
+    int tx_queue_nb;                // 发送队列数量
+    int tx_desc_nb;                 // 发送描述符数量
+    bool tx_mbuf_fast_free;         // 是否启用快速释放发送mbuf的优化
 
-    bool promisc_mode;
-    bool allmulticast;
+    bool promisc_mode;              // 是否启用混杂模式(接收所有网络流量)
+    bool allmulticast;              // 是否接收所有组播报文
 
-    struct list_head port_list_node;
+    struct list_head port_list_node; // 链表节点，用于将端口连接到端口列表中
 };
 
 static struct list_head port_list;      /* device configurations from cfgfile */
@@ -181,7 +181,7 @@ static inline void dump_lcore_role(void)
 
     for (role = 0; role < LCORE_ROLE_MAX; role++)
         snprintf(bufs[role], sizeof(bufs[role]), "\t%s: ",
-                dpvs_lcore_role_str(role));
+                ndf_lcore_role_str(role));
 
     for (cid = 0; cid < NDF_MAX_LCORE; cid++) {
         role = g_lcore_role[cid];
@@ -195,7 +195,7 @@ static inline void dump_lcore_role(void)
         strncat(results, bufs[role], sizeof(results) - strlen(results) - 1);
     }
 
-    //RTE_LOG(INFO, NETIF, "LCORE ROLES:\n%s\n", results);
+    RTE_LOG(INFO, NETIF, "LCORE ROLES:\n%s\n", results);
 }
 
 static void lcore_role_init(void)
@@ -232,8 +232,82 @@ static void lcore_role_init(void)
     dump_lcore_role();
 }
 
+static inline uint16_t netif_rx_burst(portid_t pid, struct netif_queue_conf* qconf){
+    struct rte_mbuf* mbuf;
+    int nrx = 0;
+
+    nrx = rte_eth_rx_burst(pid, qconf->id, qconf->mbufs, NETIF_MAX_PKT_BURST);
+    RTE_LOG(DEBUG, NETIF, "port id: %u ,queue id:%u recv:%d\n", pid, qconf->id, nrx);
+
+    return nrx;
+}
+
+static void lcore_job_recv_fwd(void* arg __attribute__((unused)))
+{
+    int i,j;
+    portid_t pid;
+    lcoreid_t cid;
+    struct netif_queue_conf *qconf;
+
+    cid = rte_lcore_id();
+    for (i = 0; i < lcore_conf[lcore2index[cid]].nports; i++) {
+        pid = lcore_conf[lcore2index[cid]].pqs[i].id;
+
+        for (j = 0; j < lcore_conf[lcore2index[cid]].pqs[i].nrxq; j++) {
+            qconf = &lcore_conf[lcore2index[cid]].pqs[i].rxqs[j];
+
+            qconf->len = netif_rx_burst(pid, qconf);
+
+            //TODO:need to process packets
+            //lcore_process_packets(qconf->mbufs, cid, qconf->len, 0);
+        }
+    }
+}
+
+//网络工作任务的最大值
+#define NETIF_JOB_MAX   6
+
+static struct ndf_lcore_job_array netif_jobs[NETIF_JOB_MAX] = {
+    [0] = {
+        .role = LCORE_ROLE_FWD_WORKER,
+        .job.name = "recv_fwd",
+        .job.type = LCORE_JOB_LOOP,
+        .job.func = lcore_job_recv_fwd,//收包和转发
+    },
+
+    /* [1] = {
+        .role = LCORE_ROLE_FWD_WORKER,
+        .job.name = "xmit",
+        .job.type = LCORE_JOB_LOOP,
+        .job.func = lcore_job_xmit,//发送数据包
+    }, 
+
+    [2] = {
+        .role = LCORE_ROLE_FWD_WORKER,
+        .job.name = "timer_manage",
+        .job.type = LCORE_JOB_LOOP,
+        .job.func = lcore_job_timer_manage,
+    },
+
+    [3] = {
+        .role = LCORE_ROLE_ISOLRX_WORKER,
+        .job.name = "isol_pkt_rcv",
+        .job.type = LCORE_JOB_LOOP,
+        .job.func = recv_on_isol_lcore,
+    },
+
+    [4] = {
+        .role = LCORE_ROLE_MASTER,
+        .job.name = "timer_manage",
+        .job.type = LCORE_JOB_LOOP,
+        .job.func = lcore_job_timer_manage,
+    },
+    */
+};
+
 static void netif_lcore_init(){
-    int i, err;
+    size_t i;
+    int err;
     lcoreid_t cid;
 
     //build lcore fst searching table
@@ -245,6 +319,15 @@ static void netif_lcore_init(){
 
     //build port fast searching table
     port_index_init();
+
+    for (i = 0; i < NELEMS(netif_jobs); i++) {
+        err = ndf_lcore_job_register(&netif_jobs[i].job, netif_jobs[i].role);
+        if (err < 0) {
+            rte_exit(EXIT_FAILURE, "%s: fail to register lcore job '%s', exit ...\n",
+                    __func__, netif_jobs[i].job.name);
+            break;
+        }
+    }
 }
 
 static inline struct port_conf_stream *get_port_conf_stream(const char *name)
@@ -539,8 +622,7 @@ static void netif_dump_rss_reta(struct netif_port *port)
     for (i = 0; i < port->dev_info.reta_size; i++)
         reta_info[i / RTE_ETH_RETA_GROUP_SIZE].mask = UINT64_MAX;
 
-    if (unlikely(rte_eth_dev_rss_reta_query(port->id, reta_info,
-                    port->dev_info.reta_size)))
+    if (unlikely(rte_eth_dev_rss_reta_query(port->id, reta_info, port->dev_info.reta_size)))
         return;
 
     buf[0] = '\0';
@@ -872,16 +954,4 @@ int netif_port_stop(struct netif_port *port)
 
     port->flag |= NETIF_PORT_FLAG_STOPPED;
     return ENDF_OK;
-}
-
-static void lcore_job_recv_fwd(/* void* arg */){
-    int i,j;
-    lcoreid_t cid;
-
-    cid = rte_lcore_id();
-
-    for (i = 0; i < lcore_conf[lcore2index[cid]].nports; i++)
-    {
-
-    }
 }
