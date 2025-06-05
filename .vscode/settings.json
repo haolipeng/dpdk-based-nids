@@ -4,6 +4,7 @@
         "rte_udp.h": "c",
         "scheduler.h": "c",
         "common.h": "c",
-        "list.h": "c"
+        "list.h": "c",
+        "stdio.h": "c"
     }
 }

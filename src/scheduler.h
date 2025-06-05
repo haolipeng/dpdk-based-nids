@@ -1,8 +1,11 @@
 #include <stdio.h>
+#include <rte_log.h>
 
 #include "common.h"
 #include "global_data.h"
 #include "list.h"
+
+#define RTE_LOGTYPE_DSCHED RTE_LOGTYPE_USER1
 
 typedef enum ndf_lcore_job_type {
     LCORE_JOB_INIT,//初始化任务：在应用程序启动时执行一次的任务

@@ -52,3 +52,36 @@ const char *ndf_lcore_role_str(ndf_lcore_role_t role)
     else
         return "lcore_role_unknown";
 }
+
+static int ndf_job_loop(/* void* arg */)
+{
+    struct ndf_lcore_job* job;
+    lcoreid_t cid = rte_lcore_id();
+    ndf_lcore_role_t role = g_lcore_role[cid];//每一个核心都有自己的角色
+
+    if(cid >= NDF_MAX_LCORE){
+        return ENDF_OK;
+    }
+
+    /* skip irrelative job loops */
+    if (role == LCORE_ROLE_MAX)
+        return ENDF_INVAL;
+
+    if (role == LCORE_ROLE_IDLE)
+        return ENDF_IDLE;
+
+    RTE_LOG(INFO, DSCHED, "lcore %02d enter %s loop\n", cid, ndf_lcore_role_str(role));
+
+    //TODO:not finished 
+
+    return ENDF_OK;
+}
+
+int ndf_lcore_start(int is_master)
+{
+    if(is_master){
+        return ndf_job_loop(NULL);
+    }
+
+    return rte_eal_mp_remote_launch(ndf_job_loop, NULL, SKIP_MAIN);
+}
