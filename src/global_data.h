@@ -6,6 +6,9 @@
 
 #include "common.h"
 
+RTE_DECLARE_PER_LCORE(uint32_t, g_dpvs_poll_tick);
+#define this_poll_tick (RTE_PER_LCORE(g_dpvs_poll_tick))
+
 typedef enum ndf_lcore_role_type {
     LCORE_ROLE_IDLE,//空闲状态：表示线程未分配任何角色，未被分配任何角色
     LCORE_ROLE_MASTER,//主控线程：负责管理整个应用程序的运行，负责配置更新、状态监控、控制面处理等

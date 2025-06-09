@@ -9,6 +9,8 @@ char *netdefender_pid_file;
 char *netdefender_ipc_file;
 char *netdefender_conf_file;
 
+RTE_DEFINE_PER_LCORE(uint32_t, g_dpvs_poll_tick);
+
 ndf_lcore_role_t g_lcore_role[NDF_MAX_LCORE];
 int g_lcore_index2id[NDF_MAX_LCORE];//建立逻辑核心id和数组索引之间的关系
 int g_lcore_id2index[NDF_MAX_LCORE];//建立数组索引和逻辑核心id之间的关系

@@ -53,6 +53,10 @@ const char *ndf_lcore_role_str(ndf_lcore_role_t role)
         return "lcore_role_unknown";
 }
 
+static inline void do_lcore_job(struct ndf_lcore_job* job){
+    job->func(job->data);
+}
+
 static int ndf_job_loop(/* void* arg */)
 {
     struct ndf_lcore_job* job;
@@ -72,7 +76,26 @@ static int ndf_job_loop(/* void* arg */)
 
     RTE_LOG(INFO, DSCHED, "lcore %02d enter %s loop\n", cid, ndf_lcore_role_str(role));
 
-    //TODO:not finished 
+    /* do init job */
+    list_for_each_entry(job, &ndf_lcore_jobs[role][LCORE_JOB_INIT], list){
+        do_lcore_job(job);
+    }
+
+    while(1){
+        ++this_poll_tick;
+
+        /* do normal job */
+        list_for_each_entry(job, &ndf_lcore_jobs[role][LCORE_JOB_LOOP], list) {
+            do_lcore_job(job);
+        }
+
+        /* do slow job */
+        list_for_each_entry(job, &ndf_lcore_jobs[role][LCORE_JOB_SLOW], list){
+            if (this_poll_tick % job->skip_loops == 0) {
+                do_lcore_job(job);
+            }
+        }
+    }
 
     return ENDF_OK;
 }
