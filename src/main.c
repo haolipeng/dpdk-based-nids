@@ -205,8 +205,32 @@ int main(int argc, char *argv[])
     // 获取当前设备的可用端口数
     nports = ndf_rte_eth_dev_count();
     for(pid = 0; pid < nports; pid++){
-        
+        dev = netif_port_get(pid);
+        if(!dev){
+            RTE_LOG(INFO, DPVS, "netif port of portid %d not found, likely kni portid, skip ...\n");
+            continue;
+        }
+
+        err = netif_port_start(dev);
+        if(err != ENDF_OK){
+            RTE_LOG(WARNING, DPVS, "Start %s failed, skipping ...\n", dev->name);   
+        }
     }
+
+    /* print port-queue-lcore relation */
+    netif_print_lcore_conf();
+
+    ndf_lcore_start(0);
+
+    if(pidfile_write(netdefenser_pid_file, getpid())){
+        goto end;
+    }
+
+    netdefender_state_set(NET_DEFENSER_STATE_NORMAL);
+
+    /* start control plane thread loop */
+    dpvs_lcore_start(1);
+    
     // TODO: 初始化检测引擎
     
     // TODO: 主事件循环
