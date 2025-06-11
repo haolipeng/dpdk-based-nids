@@ -36,12 +36,17 @@ enum {
 /* maximum pkt number at a single burst */
 #define NETIF_MAX_PKT_BURST         32
 
+/* maximum bonding slave number */
+#define NETIF_MAX_BOND_SLAVES       32
+
 /* maximum number of DPDK rte device */
 #define NETIF_MAX_RTE_PORTS         64
 
 /* max mtu and default mtu */
 #define NETIF_MAX_ETH_MTU           9000
 #define NETIF_DEFAULT_ETH_MTU       1500
+
+#define NETIF_ALIGN                 32
 
 /* rx/tx queue conf for lcore */
 struct netif_queue_conf
@@ -96,19 +101,52 @@ struct netif_port {
     uint16_t                txq_desc_nb;                /* tx queue descriptor number */
     int socket; //socket id
     struct rte_ether_addr   addr;                       /* MAC address */
-    uint16_t mtu;
+    uint16_t                mtu;                        /* MTU */
+    int                     hw_header_len;              /* HW header length */
+    rte_rwlock_t            dev_lock;                   /* device lock */
 
     struct list_head        list;                       /* device list node hashed by id */
+    struct list_head        nlist;                       /* device list node hashed by name */
 
     struct rte_mempool  *mbuf_pool; //packet mempool
     struct rte_eth_dev_info dev_info;                   /* PCI Info + driver name */
     struct rte_eth_conf     dev_conf;                   /* device configuration */
 };
 
+union netif_bond {
+    struct {
+        int mode; /* bonding mode */
+        int slave_nb; /* slave number */
+        struct netif_port *primary; /* primary device */
+        struct netif_port *slaves[NETIF_MAX_BOND_SLAVES]; /* slave devices */
+    } master;
+    struct {
+        struct netif_port *master;
+    } slave;
+} __rte_cache_aligned;
+
 int netif_init(void);
 int netif_term(void);
 
-//根据dpdk的版本不同，调用不同的函数
+/**************************** port API ******************************/
+struct netif_port* netif_port_get(portid_t id);
+int netif_port_start(struct netif_port *port); // start nic and wait until up
+int netif_port_stop(struct netif_port *port); // stop nic
+
+int netif_port_register(struct netif_port *dev);
+int netif_port_unregister(struct netif_port *dev);
+
+bool is_physical_port(portid_t pid);
+
+//print lcore configuration
+int netif_print_lcore_conf(char *buf, int *len, bool is_all, portid_t pid);
+
+struct netif_port *netif_alloc(portid_t id, size_t priv_size, const char *namefmt,
+                               unsigned int nrxq, unsigned int ntxq,
+                               void (*setup)(struct netif_port *));
+
+/**************************** general API ******************************/
+//call different base on the version of dpdk
 static inline uint16_t ndf_rte_eth_dev_count(){
 #if RTE_VERSION < RTE_VERSION_NUM(18, 11, 0, 0)
     return rte_eth_dev_count();

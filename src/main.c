@@ -11,6 +11,10 @@
 #include "scheduler.h"
 #include "netif.h"
 
+#define RTE_LOGTYPE_MAIN RTE_LOGTYPE_USER1
+
+#define LCORE_CONF_BUFFER_LEN 4096
+
 static void dpdk_version_check(void)
 {
 #if RTE_VERSION < RTE_VERSION_NUM(24, 11, 0, 0)
@@ -156,21 +160,20 @@ static int parse_app_args(int argc, char **argv)
     return ret;
 }
 
-/**
- * NetDefender主程序入口
- * 基于DPDK的高性能网络入侵检测系统
- */
 int main(int argc, char *argv[])
 {
-    printf("Hello World! 欢迎使用NetDefender - 基于DPDK的高性能网络入侵检测系统\n");
+    printf("Hello World! Welcome NetDefender.\n");
     
     dpdk_version_check();
 
     int err, nports;
     portid_t pid;
-    //struct netif_port *dev;
-    //struct timeval tv;
+    struct netif_port *dev;
 
+    char pql_conf_buf[LCORE_CONF_BUFFER_LEN];
+    int pql_conf_buf_len = LCORE_CONF_BUFFER_LEN;
+
+    //add application agruments parse before EAL ones
     err = parse_app_args(argc, argv);
     if (err < 0) {
         fprintf(stderr, "fail to parse application options\n");
@@ -178,7 +181,7 @@ int main(int argc, char *argv[])
     }
     argc -= err, argv += err;
 
-    /* check if NetDefender is running */
+    /* check if NetDefender is running or not*/
     if (netdefender_running(netdefender_pid_file)) {
         fprintf(stderr, "netdefender is already running\n");
         exit(EXIT_FAILURE);
@@ -200,6 +203,7 @@ int main(int argc, char *argv[])
     //初始化定时器系统
     rte_timer_subsystem_init();
 
+    //初始化各个子模块
     modules_init();
 
     // 获取当前设备的可用端口数
@@ -207,29 +211,33 @@ int main(int argc, char *argv[])
     for(pid = 0; pid < nports; pid++){
         dev = netif_port_get(pid);
         if(!dev){
-            RTE_LOG(INFO, DPVS, "netif port of portid %d not found, likely kni portid, skip ...\n");
+            RTE_LOG(INFO, MAIN, "netif port of portid %d not found, likely kni portid, skip ...\n", pid);
             continue;
         }
 
         err = netif_port_start(dev);
         if(err != ENDF_OK){
-            RTE_LOG(WARNING, DPVS, "Start %s failed, skipping ...\n", dev->name);   
+            RTE_LOG(WARNING, MAIN, "Start %s failed, skipping ...\n", dev->name);   
         }
     }
 
     /* print port-queue-lcore relation */
-    netif_print_lcore_conf();
+    netif_print_lcore_conf(pql_conf_buf, &pql_conf_buf_len, true, 0);
+    RTE_LOG(INFO, MAIN, "port-queue-lcore relation array: \n%s\n",
+            pql_conf_buf);
 
+    /* start slave worker threads */
     ndf_lcore_start(0);
 
-    if(pidfile_write(netdefenser_pid_file, getpid())){
+    /* write pid file */
+    if(pidfile_write(netdefender_pid_file, getpid())){
         goto end;
     }
 
     netdefender_state_set(NET_DEFENSER_STATE_NORMAL);
 
     /* start control plane thread loop */
-    dpvs_lcore_start(1);
+    ndf_lcore_start(1);
     
     // TODO: 初始化检测引擎
     

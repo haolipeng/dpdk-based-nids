@@ -15,7 +15,7 @@ int ndf_scheduler_term(void)
     return ENDF_OK;
 }
 
-int dpvs_lcore_job_register(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t role)
+int ndf_lcore_job_register(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t role)
 {
     struct ndf_lcore_job *cur;
 
@@ -34,6 +34,23 @@ int dpvs_lcore_job_register(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t ro
     list_add_tail(&lcore_job->list, &ndf_lcore_jobs[role][lcore_job->type]);
 
     return ENDF_OK;
+}
+
+int dpvs_lcore_job_unregister(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t role)
+{
+    struct ndf_lcore_job *cur;
+
+    if (unlikely(NULL == lcore_job || role >= LCORE_ROLE_MAX))
+        return ENDF_INVAL;
+
+    list_for_each_entry(cur, &ndf_lcore_jobs[role][lcore_job->type], list) {
+        if (cur == lcore_job) {
+            list_del_init(&cur->list);
+            return ENDF_OK;
+        }
+    }
+
+    return ENDF_NOTEXIST;
 }
 
 const char *ndf_lcore_role_str(ndf_lcore_role_t role)

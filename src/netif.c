@@ -1,3 +1,5 @@
+#include <linux/if_ether.h>
+
 #include "common.h"
 #include "netif.h"
 #include "list.h"
@@ -44,6 +46,20 @@ struct port_conf_stream {
     struct list_head port_list_node; // 链表节点，用于将端口连接到端口列表中
 };
 
+/* just for print */
+struct port_queue_lcore_map {
+    portid_t pid;
+    char mac_addr[18];
+    queueid_t rx_qid[NETIF_MAX_QUEUES];
+    queueid_t tx_qid[NETIF_MAX_QUEUES];
+};
+portid_t netif_max_pid;
+queueid_t netif_max_qid;
+struct port_queue_lcore_map pql_map[NETIF_MAX_PORTS];
+
+static portid_t port_id_end = 0;
+static uint16_t g_nports;
+
 static struct list_head port_list;      /* device configurations from cfgfile */
 static struct list_head worker_list;    /* lcore configurations from cfgfile */
 
@@ -51,18 +67,11 @@ static struct list_head worker_list;    /* lcore configurations from cfgfile */
 #define NETIF_PORT_TABLE_BUCKETS (1 << NETIF_PORT_TABLE_BITS)
 #define NETIF_PORT_TABLE_MASK (NETIF_PORT_TABLE_BUCKETS - 1)
 static struct list_head port_tab[NETIF_PORT_TABLE_BUCKETS]; /* hashed by id */
+static struct list_head port_ntab[NETIF_PORT_TABLE_BUCKETS]; /* hashed by name */
 
-int netif_init(void)
-{
-    //TODO:need finished
-    return ENDF_OK;
-}
-
-int netif_term(void)
-{
-    //TODO:need finished
-    return ENDF_OK;
-}
+/* physical nic id = phy_pid_base + index */
+static portid_t phy_pid_base = 0;
+static portid_t phy_pid_end = -1; // not inclusive
 
 /********************************************* mbufpool *******************************************/
 struct rte_mempool *pktmbuf_pool[NDF_MAX_SOCKET];
@@ -110,6 +119,7 @@ static int lcore_index_init(void)
             printf("\tcid: %2d --> %2d\n", i, lcore2index[i]);
     }
 #endif
+    return ENDF_OK;
 }
 
 static void port_index_init(void){
@@ -686,6 +696,84 @@ static int __netif_update_rss_reta(struct netif_port *port)
     return ENDF_OK;
 }
 
+static inline portid_t netif_port_id_alloc(void)
+{
+    // The netif_port_id_alloc ensures the relation `g_nports == port_id_end` always stands,
+    // which means all ids in range [0, port_id_end) are assgined to ports.
+    portid_t pid;
+
+    if (port_id_end > g_nports) {
+        for (pid = port_id_end - 1; pid != 0; pid--) {
+            if (netif_port_get(pid) == NULL)
+                return pid;
+        }
+    }
+
+    return port_id_end++;
+}
+
+struct netif_port *netif_alloc(portid_t id, size_t priv_size, const char *namefmt,
+                               unsigned int nrxq, unsigned int ntxq,
+                               void (*setup)(struct netif_port *))
+{
+    int ii;
+    struct netif_port *dev;
+    static const uint8_t mac_zero[6] = {0};
+
+    size_t alloc_size;
+
+    alloc_size = sizeof(struct netif_port);
+    if (priv_size) {
+        /* ensure 32-byte alignment of private area */
+        alloc_size = __ALIGN_KERNEL(alloc_size, NETIF_ALIGN);
+        alloc_size += priv_size;
+    }
+
+    dev = rte_zmalloc("netif", alloc_size, RTE_CACHE_LINE_SIZE);
+    if (!dev) {
+        RTE_LOG(ERR, NETIF, "%s: no memory\n", __func__);
+        return NULL;
+    }
+
+    if (id != NETIF_PORT_ID_INVALID && !netif_port_get(id))
+        dev->id = id;
+    else
+        dev->id = netif_port_id_alloc();
+
+    if (strstr(namefmt, "%d"))
+        snprintf(dev->name, sizeof(dev->name), namefmt, dev->id);
+    else
+        snprintf(dev->name, sizeof(dev->name), "%s", namefmt);
+
+    rte_rwlock_init(&dev->dev_lock);
+    dev->socket = SOCKET_ID_ANY;
+    dev->hw_header_len = sizeof(struct rte_ether_hdr); /* default */
+
+    if (setup)
+        setup(dev);
+
+    /* flag may set by setup() routine */
+    dev->flag |= NETIF_PORT_FLAG_ENABLED;
+    dev->n_rxq = nrxq;
+    dev->n_txq = ntxq;
+
+    /* virtual dev has no NUMA-node */
+    if (dev->socket == SOCKET_ID_ANY)
+        dev->socket = rte_socket_id();
+    dev->mbuf_pool = pktmbuf_pool[dev->socket];
+
+    if (memcmp(&dev->addr, &mac_zero, sizeof(dev->addr)) == 0) {
+        //TODO: use random lladdr ?
+    }
+
+    if (dev->mtu == 0)
+        dev->mtu = ETH_DATA_LEN;
+
+    //netif_mc_init(dev); TODO: fix this bug
+
+    return dev;
+}
+
 static int netif_update_rss_reta(struct netif_port *port)
 {
     switch (port->type) {
@@ -699,6 +787,72 @@ static int netif_update_rss_reta(struct netif_port *port)
 static inline int port_tab_hashkey(portid_t id)
 {
     return id & NETIF_PORT_TABLE_MASK;
+}
+
+static unsigned int port_ntab_hashkey(const char *name, size_t len)
+{
+    int i;
+    unsigned int hash=1315423911;
+    for (i = 0; i < (int)len; i++)
+    {
+        if (name[i] == '\0')
+            break;
+        hash^=((hash<<5)+name[i]+(hash>>2));
+    }
+
+    return (hash % NETIF_PORT_TABLE_BUCKETS);
+}
+
+static inline void setup_dev_of_flags(struct netif_port *port)
+{
+    port->flag |= NETIF_PORT_FLAG_ENABLED;
+
+    /* tx offload conf and flags */
+    if (port->dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_IPV4_CKSUM)
+        port->flag |= NETIF_PORT_FLAG_TX_IP_CSUM_OFFLOAD;
+
+    if (port->dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_TCP_CKSUM)
+        port->flag |= NETIF_PORT_FLAG_TX_TCP_CSUM_OFFLOAD;
+
+    if (port->dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_UDP_CKSUM)
+        port->flag |= NETIF_PORT_FLAG_TX_UDP_CSUM_OFFLOAD;
+
+    // Device supports optimization for fast release of mbufs.
+    // The feature is configurable via dpvs.conf.
+    // When set application must guarantee that per-queue all mbufs comes from
+    // the same mempool and has refcnt = 1.
+    // https://doc.dpdk.org/api/rte__ethdev_8h.html#a43f198c6b59d965130d56fd8f40ceac1
+    if (!(port->dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE))
+        port->flag &= ~NETIF_PORT_FLAG_TX_MBUF_FAST_FREE;
+
+    /* FIXME: may be a bug in dev_info get for virtio device,
+     *        set the txq_of_flags manually for this type device */
+    if (strncmp(port->dev_info.driver_name, "net_virtio", strlen("net_virtio")) == 0) {
+        port->flag |= NETIF_PORT_FLAG_TX_IP_CSUM_OFFLOAD;
+        port->flag &= ~NETIF_PORT_FLAG_TX_TCP_CSUM_OFFLOAD;
+        port->flag &= ~NETIF_PORT_FLAG_TX_UDP_CSUM_OFFLOAD;
+    }
+
+    /*
+     * we may have multiple vlan dev on one rte_ethdev,
+     * and mbuf->vlan_tci is RX only!
+     * while there's only one PVID (RTE_ETH_TX_OFFLOAD_VLAN_INSERT),
+     * to make things easier, do not support TX VLAN instert offload.
+     * or we have to check if VID is PVID (than to tx offload it).
+     */
+#if 0
+    if (dev_info->tx_offload_capa & RTE_ETH_TX_OFFLOAD_VLAN_INSERT) {
+        port->flag |= NETIF_PORT_FLAG_TX_VLAN_INSERT_OFFLOAD;
+        port->dev_conf.txmode.hw_vlan_insert_pvid = 1;
+        rte_eth_dev_set_vlan_pvid();
+    }
+#endif
+
+    /* rx offload conf and flags */
+    if (port->dev_info.rx_offload_capa & RTE_ETH_RX_OFFLOAD_VLAN_STRIP)
+        port->flag |= NETIF_PORT_FLAG_RX_VLAN_STRIP_OFFLOAD;
+    if (port->dev_info.rx_offload_capa & RTE_ETH_RX_OFFLOAD_IPV4_CKSUM)
+        port->flag |= NETIF_PORT_FLAG_RX_IP_CSUM_OFFLOAD;
 }
 
 struct netif_port* netif_port_get(portid_t id)
@@ -716,16 +870,67 @@ struct netif_port* netif_port_get(portid_t id)
     return NULL;
 }
 
-/* just for print */
-struct port_queue_lcore_map {
-    portid_t pid;
-    char mac_addr[18];
-    queueid_t rx_qid[NETIF_MAX_QUEUES];
-    queueid_t tx_qid[NETIF_MAX_QUEUES];
-};
-portid_t netif_max_pid;
-queueid_t netif_max_qid;
-struct port_queue_lcore_map pql_map[NETIF_MAX_PORTS];
+int netif_print_lcore_conf(char *buf, int *len, bool is_all, portid_t pid)
+{
+    int i, j;
+    char tbuf[256], tbuf2[256], line[1024];
+    char rxbuf[16], txbuf[16];
+    int left_len;
+    struct netif_port *port;
+
+    /* format map in string */
+    memset(buf, 0, *len);
+    if (is_all) {
+        snprintf(line, sizeof(line) - 1, "    %-12s", "");
+        for (i = 0; i <= netif_max_pid; i++) {
+            port = netif_port_get(i);
+            assert(port);
+            snprintf(tbuf2, sizeof(tbuf2) - 1, "%s: %s ", port->name, pql_map[i].mac_addr);
+            snprintf(tbuf, sizeof(tbuf) - 1, "%-25s", tbuf2);
+            strncat(line, tbuf, sizeof(line) - strlen(line) - 1);
+        }
+        strncat(line, "\n", sizeof(line) - strlen(line) - 1);
+        left_len = *len - strlen(buf);
+        if (unlikely(left_len < 0)) {
+            RTE_LOG(WARNING, NETIF, "buffer not enough for '%s'\n", __func__);
+            *len = strlen(buf);
+            return ENDF_INVAL;
+        }
+        strncat(buf, line, left_len - 1);
+    }
+
+    for (i = 0; i <= netif_max_qid; i++) {
+        snprintf(tbuf2, sizeof(tbuf2) - 1, "rx%d-tx%d", i, i);
+        snprintf(line, sizeof(line) - 1, "    %-12s", tbuf2);
+        for (j = 0; j <= netif_max_pid; j++) {
+            if (!is_all && pid != j)
+                continue;
+            if (NETIF_PORT_ID_INVALID == pql_map[j].rx_qid[i])
+                snprintf(rxbuf, sizeof(rxbuf) - 1, "xx");
+            else
+                snprintf(rxbuf, sizeof(rxbuf) - 1, "cpu%d", pql_map[j].rx_qid[i]);
+            if (NETIF_PORT_ID_INVALID == pql_map[j].tx_qid[i])
+                snprintf(txbuf, sizeof(txbuf) - 1, "xx");
+            else
+                snprintf(txbuf, sizeof(txbuf) - 1, "cpu%d", pql_map[j].tx_qid[i]);
+
+            snprintf(tbuf2, sizeof(tbuf2) - 1, "%s-%s", rxbuf, txbuf);
+            snprintf(tbuf, sizeof(tbuf) - 1, "%-25s", tbuf2);
+            strncat(line, tbuf, sizeof(line) - strlen(line) - 1);
+        }
+        strncat(line, "\n", sizeof(line) - strlen(line) - 1);
+        left_len = *len - strlen(buf);
+        if (unlikely(left_len <= 0)) {
+            RTE_LOG(WARNING, NETIF, "buffer not enough for '%s'\n", __func__);
+            *len = strlen(buf);
+            return ENDF_INVAL;
+        }
+        strncat(buf, line, left_len - 1);
+    }
+
+    *len = strlen(buf);
+    return ENDF_OK;
+}
 
 static int build_port_queue_lcore_map(void)
 {
@@ -953,5 +1158,151 @@ int netif_port_stop(struct netif_port *port)
     }
 
     port->flag |= NETIF_PORT_FLAG_STOPPED;
+    return ENDF_OK;
+}
+
+
+int netif_port_register(struct netif_port *port)
+{
+    struct netif_port *cur;
+    int hash, nhash;
+    int err;
+
+    if (unlikely(NULL == port))
+        return ENDF_INVAL;
+
+    hash = port_tab_hashkey(port->id);
+    list_for_each_entry(cur, &port_tab[hash], list) {
+        if (cur->id == port->id || strcmp(cur->name, port->name) == 0) {
+            return ENDF_EXIST;
+        }
+    }
+
+    nhash = port_ntab_hashkey(port->name, sizeof(port->name));
+    list_for_each_entry(cur, &port_ntab[hash], nlist) {
+        if (cur->id == port->id || strcmp(cur->name, port->name) == 0) {
+            return ENDF_EXIST;
+        }
+    }
+
+    list_add_tail(&port->list, &port_tab[hash]);
+    list_add_tail(&port->nlist, &port_ntab[nhash]);
+    g_nports++;
+
+    /* if (port->netif_ops->op_init) {
+        err = port->netif_ops->op_init(port);
+        if (err != EDPVS_OK) {
+            netif_port_unregister(port);
+            return err;
+        }
+    } */
+
+    return ENDF_OK;
+}
+
+static inline void port_tab_init(void)
+{
+    int i;
+    for (i = 0; i < NETIF_PORT_TABLE_BUCKETS; i++)
+        INIT_LIST_HEAD(&port_tab[i]);
+}
+
+static inline void port_ntab_init(void)
+{
+    int i;
+    for (i = 0; i < NETIF_PORT_TABLE_BUCKETS; i++)
+        INIT_LIST_HEAD(&port_ntab[i]);
+}
+
+static void dpdk_port_setup(struct netif_port *dev)
+{
+    dev->type      = PORT_TYPE_GENERAL;
+    //dev->netif_ops = &dpdk_netif_ops; //TODO:comment by haolipeng
+    dev->socket    = rte_eth_dev_socket_id(dev->id);
+    dev->dev_conf  = default_port_conf;
+
+    rte_eth_macaddr_get(dev->id, &dev->addr);
+    rte_eth_dev_get_mtu(dev->id, &dev->mtu);
+    if (rte_eth_dev_info_get(dev->id, &dev->dev_info))
+        memset(&dev->dev_info, 0, sizeof(dev->dev_info));
+    setup_dev_of_flags(dev);
+}
+
+static inline int port_name_alloc(portid_t pid, char *pname, size_t buflen)
+{
+    assert(pname && buflen > 0);
+    memset(pname, 0, buflen);
+    if (is_physical_port(pid)) {
+        struct port_conf_stream *current_cfg;
+        list_for_each_entry_reverse(current_cfg, &port_list, port_list_node) {
+            if (current_cfg->port_id < 0) {
+                current_cfg->port_id = pid;
+                if (current_cfg->name[0])
+                    snprintf(pname, buflen, "%s", current_cfg->name);
+                else
+                    snprintf(pname, buflen, "dpdk%d", pid);
+                return ENDF_OK;
+            }
+        }
+        RTE_LOG(ERR, NETIF, "%s: not enough ports configured in dpvs.conf\n", __func__);
+        return ENDF_NOTEXIST;
+    }
+
+    return ENDF_INVAL;
+}
+
+bool is_physical_port(portid_t pid)
+{
+    return pid >= phy_pid_base && pid < phy_pid_end;
+}
+
+/* Allocate and register all DPDK ports available */
+static void netif_port_init(void)
+{
+    int nports, nports_cfg;
+    portid_t pid;
+    struct netif_port *port;
+    char ifname[IFNAMSIZ];
+
+    nports = ndf_rte_eth_dev_count();
+    if (nports <= 0)
+        rte_exit(EXIT_FAILURE, "No dpdk ports found!\n"
+                "Possibly nic or driver is not dpdk-compatible.\n");
+
+    nports_cfg = list_elems(&port_list);
+    if (nports_cfg < nports)
+        rte_exit(EXIT_FAILURE, "ports in DPDK RTE (%d) != ports in dpvs.conf(%d)\n",
+                nports, nports_cfg);
+
+    port_tab_init();
+    port_ntab_init();
+
+    for (pid = 0; pid < nports; pid++) {
+        if (port_name_alloc(pid, ifname, sizeof(ifname)) != ENDF_OK)
+            rte_exit(EXIT_FAILURE, "Port name allocation failed, exiting...\n");
+
+        /* queue number will be filled on device start */
+        port = NULL;
+        if (is_physical_port(pid))
+            port = netif_alloc(pid, sizeof(union netif_bond), ifname, 0, 0, dpdk_port_setup);
+        if (!port)
+            rte_exit(EXIT_FAILURE, "Port allocation failed, exiting...\n");
+
+        if (netif_port_register(port) < 0)
+            rte_exit(EXIT_FAILURE, "Port registration failed, exiting...\n");
+    }
+}
+
+int netif_init(void)
+{
+    netif_pktmbuf_pool_init();
+    netif_port_init();
+    netif_lcore_init();
+    return ENDF_OK;
+}
+
+int netif_term(void)
+{
+    //TODO:need finished
     return ENDF_OK;
 }

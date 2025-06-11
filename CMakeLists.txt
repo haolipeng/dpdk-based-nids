@@ -98,6 +98,7 @@ add_compile_options(
     -O2
     -Wno-unused-variable
     -Wno-unused-function
+    -Wno-format-truncation
     -DNET_DEFENSER_VERSION="${VERSION_STRING}"
     -DNET_DEFENSER_BUILD_DATE="${DATE_STRING}"
     -DNDF_MAX_SOCKET=${NDF_MAX_SOCKET}

@@ -35,5 +35,7 @@ struct ndf_lcore_job_array {
 int ndf_scheduler_init(void);
 int ndf_scheduler_term(void);
 
+int ndf_lcore_start(int is_master);
 const char *ndf_lcore_role_str(ndf_lcore_role_t role);
 int ndf_lcore_job_register(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t role);
+int ndf_lcore_job_unregister(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t role);
