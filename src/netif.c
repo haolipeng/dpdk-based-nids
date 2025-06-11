@@ -818,7 +818,7 @@ static inline void setup_dev_of_flags(struct netif_port *port)
         port->flag |= NETIF_PORT_FLAG_TX_UDP_CSUM_OFFLOAD;
 
     // Device supports optimization for fast release of mbufs.
-    // The feature is configurable via dpvs.conf.
+    // The feature is configurable via setting.conf.
     // When set application must guarantee that per-queue all mbufs comes from
     // the same mempool and has refcnt = 1.
     // https://doc.dpdk.org/api/rte__ethdev_8h.html#a43f198c6b59d965130d56fd8f40ceac1
@@ -1191,7 +1191,7 @@ int netif_port_register(struct netif_port *port)
 
     /* if (port->netif_ops->op_init) {
         err = port->netif_ops->op_init(port);
-        if (err != EDPVS_OK) {
+        if (err != ENDF_OK) {
             netif_port_unregister(port);
             return err;
         }
@@ -1244,7 +1244,7 @@ static inline int port_name_alloc(portid_t pid, char *pname, size_t buflen)
                 return ENDF_OK;
             }
         }
-        RTE_LOG(ERR, NETIF, "%s: not enough ports configured in dpvs.conf\n", __func__);
+        RTE_LOG(ERR, NETIF, "%s: not enough ports configured in setting.conf\n", __func__);
         return ENDF_NOTEXIST;
     }
 
@@ -1271,7 +1271,7 @@ static void netif_port_init(void)
 
     nports_cfg = list_elems(&port_list);
     if (nports_cfg < nports)
-        rte_exit(EXIT_FAILURE, "ports in DPDK RTE (%d) != ports in dpvs.conf(%d)\n",
+        rte_exit(EXIT_FAILURE, "ports in DPDK RTE (%d) != ports in setting.conf(%d)\n",
                 nports, nports_cfg);
 
     port_tab_init();

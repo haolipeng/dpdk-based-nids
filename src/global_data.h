@@ -6,8 +6,8 @@
 
 #include "common.h"
 
-RTE_DECLARE_PER_LCORE(uint32_t, g_dpvs_poll_tick);
-#define this_poll_tick (RTE_PER_LCORE(g_dpvs_poll_tick))
+RTE_DECLARE_PER_LCORE(uint32_t, g_ndf_poll_tick);
+#define this_poll_tick (RTE_PER_LCORE(g_ndf_poll_tick))
 
 typedef enum ndf_lcore_role_type {
     LCORE_ROLE_IDLE,//空闲状态：表示线程未分配任何角色，未被分配任何角色

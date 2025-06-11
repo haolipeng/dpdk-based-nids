@@ -6,6 +6,7 @@
         "common.h": "c",
         "list.h": "c",
         "stdio.h": "c",
-        "rte_log.h": "c"
+        "rte_log.h": "c",
+        "random": "c"
     }
 }

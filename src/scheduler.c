@@ -36,7 +36,7 @@ int ndf_lcore_job_register(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t rol
     return ENDF_OK;
 }
 
-int dpvs_lcore_job_unregister(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t role)
+int ndf_lcore_job_unregister(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t role)
 {
     struct ndf_lcore_job *cur;
 

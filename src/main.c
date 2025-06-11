@@ -23,42 +23,43 @@ static void dpdk_version_check(void)
 #endif
 }
 
-#define DPVS_MODULES {                                          \
-        DPVS_MODULE(MODULE_FIRST,       "scheduler",            \
+//LAST表示最后一个元素
+#define NET_DEFENDER_MODULES {                                          \
+        NET_DEFENDER_MODULE(MODULE_FIRST,       "scheduler",            \
                     ndf_scheduler_init, ndf_scheduler_term),  \
-        DPVS_MODULE(MODULE_NETIF,       "netif",                \
+        NET_DEFENDER_MODULE(MODULE_NETIF,       "netif",                \
                     netif_init,          netif_term),           \
-        DPVS_MODULE(MODULE_LAST,        "last",                 \
+        NET_DEFENDER_MODULE(MODULE_LAST,        "last",                 \
                     NULL,                NULL)                  \
     }
 
-#define DPVS_MODULE(a, b, c, d)  a
-enum dpvs_modules DPVS_MODULES;
-#undef DPVS_MODULE
+#define NET_DEFENDER_MODULE(a, b, c, d)  a
+enum net_defender_modules NET_DEFENDER_MODULES;
+#undef NET_DEFENDER_MODULE
 
-#define DPVS_MODULE(a, b, c, d)  b
-static const char *dpvs_modules[] = DPVS_MODULES;
-#undef DPVS_MODULE
+#define NET_DEFENDER_MODULE(a, b, c, d)  b
+static const char *net_defender_modules[] = NET_DEFENDER_MODULES;
+#undef NET_DEFENDER_MODULE
 
-typedef int (*dpvs_module_init_pt)(void);
-typedef int (*dpvs_module_term_pt)(void);
+typedef int (*net_defender_module_init_pt)(void);
+typedef int (*net_defender_module_term_pt)(void);
 
-#define DPVS_MODULE(a, b, c, d)  c
-dpvs_module_init_pt dpvs_module_inits[] = DPVS_MODULES;
-#undef DPVS_MODULE
+#define NET_DEFENDER_MODULE(a, b, c, d)  c
+net_defender_module_init_pt net_defender_module_inits[] = NET_DEFENDER_MODULES;
+#undef NET_DEFENDER_MODULE
 
-#define DPVS_MODULE(a, b, c, d)  d
-dpvs_module_term_pt dpvs_module_terms[] = DPVS_MODULES;
+#define NET_DEFENDER_MODULE(a, b, c, d)  d
+net_defender_module_term_pt net_defender_module_terms[] = NET_DEFENDER_MODULES;
 
 static void modules_init(void)
 {
     int m, err;
 
     for (m = MODULE_FIRST; m <= MODULE_LAST; m++) {
-        if (dpvs_module_inits[m]) {
-            if ((err = dpvs_module_inits[m]()) != ENDF_OK) {
+        if (net_defender_module_inits[m]) {
+            if ((err = net_defender_module_inits[m]()) != ENDF_OK) {
                 rte_exit(EXIT_FAILURE, "failed to init %s: %s\n",
-                         dpvs_modules[m], ndf_strerror(err));
+                         net_defender_modules[m], ndf_strerror(err));
             }
         }
     }
@@ -69,10 +70,10 @@ static void modules_term(void)
     int m, err;
 
     for (m = MODULE_LAST ; m >= MODULE_FIRST; m--) {
-        if (dpvs_module_terms[m]) {
-            if ((err = dpvs_module_terms[m]()) != ENDF_OK) {
+        if (net_defender_module_terms[m]) {
+            if ((err = net_defender_module_terms[m]()) != ENDF_OK) {
                 rte_exit(EXIT_FAILURE, "failed to term %s: %s\n",
-                         dpvs_modules[m], ndf_strerror(err));
+                         net_defender_modules[m], ndf_strerror(err));
             }
         }
     }
@@ -189,7 +190,7 @@ int main(int argc, char *argv[])
 
     netdefender_state_set(NET_DEFENSER_STATE_INIT);
     if(get_numa_nodes() > NDF_MAX_SOCKET){
-        fprintf(stderr, "DPVS_MAX_SOCKET is smaller than system numa nodes!\n");
+        fprintf(stderr, "NDF_MAX_SOCKET is smaller than system numa nodes!\n");
         return -1;
     }
 
