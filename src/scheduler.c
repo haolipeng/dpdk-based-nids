@@ -7,6 +7,12 @@ static struct list_head ndf_lcore_jobs[LCORE_ROLE_MAX][LCORE_JOB_TYPE_MAX];
 
 int ndf_scheduler_init(void)
 {
+    int ii, jj;
+    for (ii = 0; ii < LCORE_ROLE_MAX; ii++) {
+        for (jj = 0; jj < LCORE_JOB_TYPE_MAX; jj++) {
+            INIT_LIST_HEAD(&ndf_lcore_jobs[ii][jj]);
+        }
+    }
     return ENDF_OK;
 }
 

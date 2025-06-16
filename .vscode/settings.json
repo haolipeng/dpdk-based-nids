@@ -7,6 +7,8 @@
         "list.h": "c",
         "stdio.h": "c",
         "rte_log.h": "c",
-        "random": "c"
+        "random": "c",
+        "dpdk.h": "c",
+        "signal.h": "c"
     }
 }

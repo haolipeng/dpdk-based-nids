@@ -23,6 +23,9 @@ extern int g_lcore_index2id[NDF_MAX_LCORE];
 extern int g_lcore_id2index[NDF_MAX_LCORE];
 extern int g_lcore_num;
 
+extern lcoreid_t g_master_lcore_id;
+extern lcoreid_t g_kni_lcore_id;
+
 extern char *netdefender_pid_file;
 extern char *netdefender_ipc_file;
 extern char *netdefender_conf_file;
@@ -31,4 +34,6 @@ extern unsigned int g_version;
 
 int version_parse(const char *strver);
 
+int global_data_init(void);
+int global_data_term(void);
 #endif

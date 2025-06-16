@@ -135,4 +135,6 @@ enum {
 };
 
 int get_numa_nodes(void);
+bool is_power2(int num, int offset, int *lower);
+
 #endif

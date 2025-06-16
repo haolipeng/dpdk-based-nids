@@ -10,6 +10,7 @@
 #include "pidfile.h"
 #include "scheduler.h"
 #include "netif.h"
+#include "cfgfile.h"
 
 #define RTE_LOGTYPE_MAIN RTE_LOGTYPE_USER1
 
@@ -26,11 +27,15 @@ static void dpdk_version_check(void)
 //LAST表示最后一个元素
 #define NET_DEFENDER_MODULES {                                          \
         NET_DEFENDER_MODULE(MODULE_FIRST,       "scheduler",            \
-                    ndf_scheduler_init, ndf_scheduler_term),  \
+                    ndf_scheduler_init, ndf_scheduler_term),            \
+        NET_DEFENDER_MODULE(MODULE_GLOBAL_DATA, "global data",          \
+                    global_data_init,    global_data_term),             \
+        NET_DEFENDER_MODULE(MODULE_CFG,         "config file",          \
+                    cfgfile_init,        cfgfile_term),                 \
         NET_DEFENDER_MODULE(MODULE_NETIF,       "netif",                \
-                    netif_init,          netif_term),           \
+                    netif_init,          netif_term),                   \
         NET_DEFENDER_MODULE(MODULE_LAST,        "last",                 \
-                    NULL,                NULL)                  \
+                    NULL,                NULL)                          \
     }
 
 #define NET_DEFENDER_MODULE(a, b, c, d)  a
@@ -174,7 +179,13 @@ int main(int argc, char *argv[])
     char pql_conf_buf[LCORE_CONF_BUFFER_LEN];
     int pql_conf_buf_len = LCORE_CONF_BUFFER_LEN;
 
-    //add application agruments parse before EAL ones
+    /**
+     * add application agruments parse before EAL ones.
+     * use it like the following:
+     * ./dpvs -v
+     * OR
+     * ./dpvs -- -n 4 -l 0-11 (if you want to use eal arguments)
+     */
     err = parse_app_args(argc, argv);
     if (err < 0) {
         fprintf(stderr, "fail to parse application options\n");

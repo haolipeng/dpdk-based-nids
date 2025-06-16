@@ -48,6 +48,8 @@ enum {
 
 #define NETIF_ALIGN                 32
 
+#define NETIF_LCORE_ID_INVALID      0xFF
+
 /* rx/tx queue conf for lcore */
 struct netif_queue_conf
 {
@@ -127,6 +129,12 @@ union netif_bond {
 
 int netif_init(void);
 int netif_term(void);
+
+void netif_keyword_value_init(void);
+void install_netif_keywords(void);
+
+void netif_cfgfile_init(void);
+void netif_cfgfile_term(void);
 
 /**************************** port API ******************************/
 struct netif_port* netif_port_get(portid_t id);

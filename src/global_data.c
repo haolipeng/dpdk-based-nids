@@ -2,6 +2,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <rte_cycles.h>
+
 #include "global_data.h"
 #include "common.h"
 
@@ -9,7 +11,11 @@ char *netdefender_pid_file;
 char *netdefender_ipc_file;
 char *netdefender_conf_file;
 
+lcoreid_t g_kni_lcore_id = 0;
+lcoreid_t g_master_lcore_id;
+
 RTE_DEFINE_PER_LCORE(uint32_t, g_ndf_poll_tick);
+uint64_t g_cycles_per_sec;//每秒的时钟周期数
 
 ndf_lcore_role_t g_lcore_role[NDF_MAX_LCORE];
 int g_lcore_index2id[NDF_MAX_LCORE];//建立逻辑核心id和数组索引之间的关系
@@ -50,4 +56,26 @@ int version_parse(const char *strver)
 
     free(sver);
     return version;
+}
+
+int global_data_init(void)
+{
+    int i;
+
+    g_cycles_per_sec = rte_get_timer_hz();
+    g_lcore_num = 0;
+
+    //初始化逻辑核心角色、索引和id
+    for (i = 0; i < NDF_MAX_LCORE; i++) {
+        g_lcore_role[i] = LCORE_ROLE_IDLE;
+        g_lcore_index2id[i] = -1;
+        g_lcore_id2index[i] = -1;
+    }
+
+    return ENDF_OK;
+}
+
+int global_data_term(void)
+{
+    return ENDF_OK;
 }

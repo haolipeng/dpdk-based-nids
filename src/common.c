@@ -75,3 +75,29 @@ const char *ndf_strerror(int err)
 
     return "<unknow>";
 }
+
+/* if (num+offset) == 2^n, return true,
+ * otherwise return false and 'lower' is filled with
+ * the closest lower bound value to 'num' */
+bool is_power2(int num, int offset, int *lower)
+{
+    int i, onum;
+    bool ret = true;
+
+    onum = num + offset;
+    if (num < 2 || onum < 2) {
+        if (lower)
+            *lower = num;
+        return false;
+    }
+
+    for (i = 1; (onum >> i) > 1;i++) {
+        if ((onum >> i) % 2) {
+            ret = false;
+        }
+    }
+
+    if (lower)
+        *lower = (1u << i);
+    return ret;
+}

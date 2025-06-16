@@ -4,6 +4,8 @@
 #include "netif.h"
 #include "list.h"
 #include "scheduler.h"
+#include "vector.h"
+#include "parser.h"
 
 #define NETIF_PKTPOOL_NB_MBUF_DEF   65535
 #define NETIF_PKTPOOL_NB_MBUF_MIN   1023
@@ -25,11 +27,15 @@ int netif_pktpool_mbuf_cache = NETIF_PKTPOOL_MBUF_CACHE_DEF;
 
 #define RETA_CONF_SIZE  (RTE_ETH_RSS_RETA_SIZE_512 / RTE_ETH_RETA_GROUP_SIZE)
 
+#define NETIF_PKT_PREFETCH_OFFSET   3
+#define NETIF_ISOL_RXQ_RING_SZ_DEF  1048576 // 1M bytes
+
 #define RTE_LOGTYPE_NETIF RTE_LOGTYPE_USER1
 
 struct port_conf_stream {
     int port_id;                    // 端口ID，用于标识网络端口
     char name[32];                  // 端口名称，最大32字符
+    char kni_name[32];              // kni接口的名称
 
     int rx_queue_nb;                // 接收队列数量
     int rx_desc_nb;                 // 接收描述符数量
@@ -44,6 +50,23 @@ struct port_conf_stream {
     bool allmulticast;              // 是否接收所有组播报文
 
     struct list_head port_list_node; // 链表节点，用于将端口连接到端口列表中
+};
+
+struct queue_conf_stream {
+    char port_name[32];
+    int rx_queues[NETIF_MAX_QUEUES];
+    int tx_queues[NETIF_MAX_QUEUES];
+    int isol_rxq_lcore_ids[NETIF_MAX_QUEUES];
+    int isol_rxq_ring_sz;
+    struct list_head queue_list_node;
+};
+
+struct worker_conf_stream {
+    int cpu_id;
+    char name[32];
+    char type[32];
+    struct list_head port_list;
+    struct list_head worker_list_node;
 };
 
 /* just for print */
@@ -207,6 +230,36 @@ static inline void dump_lcore_role(void)
 
     RTE_LOG(INFO, NETIF, "LCORE ROLES:\n%s\n", results);
 }
+
+void netif_cfgfile_init(void)
+{
+    INIT_LIST_HEAD(&port_list);
+    INIT_LIST_HEAD(&worker_list);
+}
+
+/*
+static void netif_cfgfile_term(void)
+{
+    struct port_conf_stream *port_cfg, *port_cfg_next;
+    struct worker_conf_stream *worker_cfg, *worker_cfg_next;
+    struct queue_conf_stream *queue_cfg, *queue_cfg_next;
+
+    list_for_each_entry_safe(port_cfg, port_cfg_next, &port_list, port_list_node) {
+        list_del(&port_cfg->port_list_node);
+        rte_free(port_cfg);
+    }
+
+    list_for_each_entry_safe(worker_cfg, worker_cfg_next, &worker_list, worker_list_node) {
+        list_del(&worker_cfg->worker_list_node);
+        list_for_each_entry_safe(queue_cfg, queue_cfg_next, &worker_cfg->port_list,
+                queue_list_node) {
+            list_del(&queue_cfg->queue_list_node);
+            rte_free(queue_cfg);
+        }
+        rte_free(worker_cfg);
+    }
+}
+*/
 
 static void lcore_role_init(void)
 {
@@ -478,7 +531,7 @@ static void adapt_device_conf(portid_t port_id, uint64_t *rss_hf,
 }
 
 /* fill in rx/tx queue configurations, including queue number,
- * decriptor number, bonding device's rss */
+ * decriptor number */
 static void fill_port_config(struct netif_port *port, char *promisc_on, char *allmulticast)
 {
     assert(port);
@@ -1269,6 +1322,7 @@ static void netif_port_init(void)
         rte_exit(EXIT_FAILURE, "No dpdk ports found!\n"
                 "Possibly nic or driver is not dpdk-compatible.\n");
 
+    //这块需要配置文件中配置，目前没有配置文件，所以需要手动配置
     nports_cfg = list_elems(&port_list);
     if (nports_cfg < nports)
         rte_exit(EXIT_FAILURE, "ports in DPDK RTE (%d) != ports in setting.conf(%d)\n",
@@ -1305,4 +1359,540 @@ int netif_term(void)
 {
     //TODO:need finished
     return ENDF_OK;
+}
+
+static void netif_defs_handler(vector_t tokens)
+{
+    struct port_conf_stream *port_cfg, *port_cfg_next;
+
+    list_for_each_entry_safe(port_cfg, port_cfg_next, &port_list, port_list_node) {
+        list_del(&port_cfg->port_list_node);
+        rte_free(port_cfg);
+    }
+}
+
+static void pktpool_size_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    int pktpool_size;
+
+    assert(str);
+    pktpool_size = atoi(str);
+    if (pktpool_size < NETIF_PKTPOOL_NB_MBUF_MIN ||
+            pktpool_size > NETIF_PKTPOOL_NB_MBUF_MAX) {
+        RTE_LOG(WARNING, NETIF, "invalid pktpool_size %s, using default %d\n",
+                str, NETIF_PKTPOOL_NB_MBUF_DEF);
+        netif_pktpool_nb_mbuf = NETIF_PKTPOOL_NB_MBUF_DEF;
+    } else {
+        is_power2(pktpool_size, 1, &pktpool_size);
+        RTE_LOG(INFO, NETIF, "pktpool_size = %d (round to 2^n-1)\n", pktpool_size - 1);
+        netif_pktpool_nb_mbuf = pktpool_size - 1;
+    }
+
+    FREE_PTR(str);
+}
+
+static void pktpool_cache_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    int cache_size;
+
+    assert(str);
+    cache_size = atoi(str);
+    if (cache_size < NETIF_PKTPOOL_MBUF_CACHE_MIN ||
+            cache_size > NETIF_PKTPOOL_MBUF_CACHE_MAX) {
+        RTE_LOG(WARNING, NETIF, "invalid pktpool_cache_size %s, using default %d\n",
+                str, NETIF_PKTPOOL_MBUF_CACHE_DEF);
+        netif_pktpool_mbuf_cache = NETIF_PKTPOOL_MBUF_CACHE_DEF;
+    } else {
+        is_power2(cache_size, 0, &cache_size);
+        RTE_LOG(INFO, NETIF, "pktpool_cache_size = %d (round to 2^n)\n", cache_size);
+        netif_pktpool_mbuf_cache = cache_size;
+    }
+
+    FREE_PTR(str);
+}
+
+static void device_handler(vector_t tokens)
+{
+    assert(VECTOR_SIZE(tokens) >= 1);
+
+    char *str;
+    struct port_conf_stream *port_cfg =
+        rte_zmalloc(NULL, sizeof(struct port_conf_stream), RTE_CACHE_LINE_SIZE);
+    if (!port_cfg) {
+        RTE_LOG(ERR, NETIF, "%s: no memory\n", __func__);
+        return;
+    }
+
+    port_cfg->port_id = -1;
+    str = VECTOR_SLOT(tokens, 1);
+    RTE_LOG(INFO, NETIF, "netif device config: %s\n", str);
+    strncpy(port_cfg->name, str, sizeof(port_cfg->name));
+    port_cfg->rx_queue_nb = -1;
+    port_cfg->tx_queue_nb = -1;
+    port_cfg->rx_desc_nb = NETIF_NB_RX_DESC_DEF;
+    port_cfg->tx_desc_nb = NETIF_NB_TX_DESC_DEF;
+    port_cfg->tx_mbuf_fast_free = true;
+    port_cfg->mtu = NETIF_DEFAULT_ETH_MTU;
+
+    port_cfg->promisc_mode = false;
+    port_cfg->allmulticast = false;
+    strncpy(port_cfg->rss, "tcp", sizeof(port_cfg->rss));
+
+    list_add(&port_cfg->port_list_node, &port_list);
+}
+
+static void rx_queue_number_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    int rx_queues;
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+
+    assert(str);
+    rx_queues = atoi(str);
+    if (rx_queues < 0 || rx_queues > NETIF_MAX_QUEUES) {
+        RTE_LOG(WARNING, NETIF, "invalid %s:rx_queue_number %s, using default %d\n",
+                current_device->name, str, NETIF_MAX_QUEUES);
+        current_device->rx_queue_nb = NETIF_MAX_QUEUES;
+    } else {
+        RTE_LOG(WARNING, NETIF, "%s:rx_queue_number = %d\n",
+                current_device->name, rx_queues);
+        current_device->rx_queue_nb = rx_queues;
+    }
+
+    FREE_PTR(str);
+}
+
+static void rx_desc_nb_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    int desc_nb;
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+
+    assert(str);
+    desc_nb = atoi(str);
+    if (desc_nb < NETIF_NB_RX_DESC_MIN || desc_nb > NETIF_NB_RX_DESC_MAX) {
+        RTE_LOG(WARNING, NETIF, "invalid %s:nb_rx_desc %s, using default %d\n",
+                current_device->name, str, NETIF_NB_RX_DESC_DEF);
+        current_device->rx_desc_nb = NETIF_NB_RX_DESC_DEF;
+    } else {
+        is_power2(desc_nb, 0, &desc_nb);
+        RTE_LOG(INFO, NETIF, "%s:nb_rx_desc = %d (round to 2^n)\n",
+                current_device->name, desc_nb);
+        current_device->rx_desc_nb = desc_nb;
+    }
+
+    FREE_PTR(str);
+}
+
+static void rss_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+
+    assert(str);
+    if (!strcmp(str, "all") || !strcmp(str, "ip") || !strcmp(str, "tcp") || !strcmp(str, "udp")
+            || !strcmp(str, "sctp") || !strcmp(str, "ether") || !strcmp(str, "port") || !strcmp(str, "tunnel")
+            || (strstr(str, "|") && str[0] != '|')) {
+        RTE_LOG(INFO, NETIF, "%s:rss = %s\n", current_device->name, str);
+        strncpy(current_device->rss, str, sizeof(current_device->rss));
+    } else {
+        RTE_LOG(WARNING, NETIF, "invalid %s:rss %s, using default rss_tcp\n",
+                current_device->name, str);
+        strncpy(current_device->rss, "tcp", sizeof(current_device->rss));
+    }
+
+    FREE_PTR(str);
+}
+
+static void tx_queue_number_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    int tx_queues;
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+
+    assert(str);
+    tx_queues = atoi(str);
+    if (tx_queues < 0 || tx_queues > NETIF_MAX_QUEUES) {
+        RTE_LOG(WARNING, NETIF, "invalid %s:tx_queue_number %s, using default %d\n",
+                current_device->name, str, NETIF_MAX_QUEUES);
+        current_device->tx_queue_nb = NETIF_MAX_QUEUES;
+    } else {
+        RTE_LOG(INFO, NETIF, "%s:tx_queue_number = %d\n",
+                current_device->name, tx_queues);
+        current_device->tx_queue_nb = tx_queues;
+    }
+
+    FREE_PTR(str);
+}
+
+static void tx_desc_nb_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    int desc_nb;
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+
+    assert(str);
+    desc_nb = atoi(str);
+    if (desc_nb < NETIF_NB_TX_DESC_MIN || desc_nb > NETIF_NB_TX_DESC_MAX) {
+        RTE_LOG(WARNING, NETIF, "invalid nb_tx_desc %s, using default %d\n",
+                str, NETIF_NB_TX_DESC_DEF);
+        current_device->tx_desc_nb = NETIF_NB_TX_DESC_DEF;
+    } else {
+        is_power2(desc_nb, 0, &desc_nb);
+        RTE_LOG(INFO, NETIF, "%s:nb_tx_desc = %d (round to 2^n)\n",
+                current_device->name, desc_nb);
+        current_device->tx_desc_nb = desc_nb;
+    }
+
+    FREE_PTR(str);
+}
+
+static void tx_mbuf_fast_free_handler(vector_t tokens)
+{
+    int val = -1;
+    char *str = set_value(tokens);
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+
+    assert(str);
+    if (!strcasecmp(str, "off"))
+        val = 0;
+    else if (!strcasecmp(str, "on"))
+        val = 1;
+
+    if (val < 0) {
+        RTE_LOG(WARNING, NETIF, "invalid %s:tx_mbuf_fast_free, using default ON\n",
+                current_device->name);
+        current_device->tx_mbuf_fast_free = true;
+    } else {
+        current_device->tx_mbuf_fast_free = !!val;
+        RTE_LOG(INFO, NETIF, "%s:tx_mbuf_fast_free = %s\n", current_device->name, str);
+    }
+
+    FREE_PTR(str);
+}
+
+static void promisc_mode_handler(vector_t tokens)
+{
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+    current_device->promisc_mode = true;
+}
+
+static void allmulticast_handler(vector_t tokens)
+{
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+    current_device->allmulticast = true;
+}
+
+static void custom_mtu_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    int mtu = 0;
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+
+    assert(str);
+    mtu = atoi(str);
+    if (mtu <= 0 || mtu > NETIF_MAX_ETH_MTU) {
+        RTE_LOG(WARNING, NETIF, "invalid %s:MTU %s, using default %d\n",
+                current_device->name, str, NETIF_DEFAULT_ETH_MTU);
+        current_device->mtu= NETIF_DEFAULT_ETH_MTU;
+    } else {
+        RTE_LOG(INFO, NETIF, "%s:mtu = %d\n",
+                current_device->name, mtu);
+        current_device->mtu = mtu;
+    }
+
+    FREE_PTR(str);
+
+}
+static void kni_name_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+
+    assert(str);
+    RTE_LOG(INFO, NETIF, "%s:kni_name = %s\n",current_device->name, str);
+    strncpy(current_device->kni_name, str, sizeof(current_device->kni_name));
+
+    FREE_PTR(str);
+}
+
+static void worker_defs_handler(vector_t tokens)
+{
+    struct worker_conf_stream *worker_cfg, *worker_cfg_next;
+    struct queue_conf_stream *queue_cfg, *queue_cfg_next;
+
+    list_for_each_entry_safe(worker_cfg, worker_cfg_next, &worker_list,
+            worker_list_node) {
+        list_del(&worker_cfg->worker_list_node);
+        list_for_each_entry_safe(queue_cfg, queue_cfg_next, &worker_cfg->port_list,
+                queue_list_node) {
+            list_del(&queue_cfg->queue_list_node);
+            rte_free(queue_cfg);
+        }
+        rte_free(worker_cfg);
+    }
+}
+
+static void worker_handler(vector_t tokens)
+{
+    assert(VECTOR_SIZE(tokens) >= 1);
+
+    char *str;
+    struct worker_conf_stream *worker_cfg = rte_malloc(NULL,
+            sizeof(struct worker_conf_stream), RTE_CACHE_LINE_SIZE);
+    if (!worker_cfg) {
+        RTE_LOG(ERR, NETIF, "%s: no memory\n", __func__);
+        return;
+    }
+
+    INIT_LIST_HEAD(&worker_cfg->port_list);
+
+    str = VECTOR_SLOT(tokens, 1);
+    RTE_LOG(INFO, NETIF, "netif worker config: %s\n", str);
+    strncpy(worker_cfg->name, str, sizeof(worker_cfg->name));
+
+    list_add(&worker_cfg->worker_list_node, &worker_list);
+}
+
+static void worker_type_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    struct worker_conf_stream *current_worker = list_entry(worker_list.next,
+            struct worker_conf_stream, worker_list_node);
+
+    assert(str);
+    if (!strcmp(str, "master") || !strcmp(str, "slave")
+        || !strcmp(str, "kni")) {
+        RTE_LOG(INFO, NETIF, "%s:type = %s\n", current_worker->name, str);
+        strncpy(current_worker->type, str, sizeof(current_worker->type));
+    } else {
+        RTE_LOG(WARNING, NETIF, "invalid %s:type %s, using default %s\n",
+                current_worker->name, str, "slave");
+        strncpy(current_worker->type, "slave", sizeof(current_worker->type));
+    }
+
+    FREE_PTR(str);
+}
+
+static void cpu_id_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    int cpu_id;
+    struct worker_conf_stream *current_worker = list_entry(worker_list.next,
+            struct worker_conf_stream, worker_list_node);
+
+    assert(str);
+    if (strspn(str, "0123456789") != strlen(str)) {
+        RTE_LOG(WARNING, NETIF, "invalid %s:cpu_id %s, using default 0\n",
+                current_worker->name, str);
+        current_worker->cpu_id = 0;
+    } else {
+        cpu_id = atoi(str);
+        RTE_LOG(INFO, NETIF, "%s:cpu_id = %d\n", current_worker->name, cpu_id);
+        current_worker->cpu_id = cpu_id;
+
+        if (!strcmp(current_worker->type, "kni"))
+            g_kni_lcore_id = cpu_id;
+    }
+
+    FREE_PTR(str);
+}
+
+static void worker_port_handler(vector_t tokens)
+{
+    assert(VECTOR_SIZE(tokens) >= 1);
+
+    char *str;
+    int ii;
+    struct worker_conf_stream *current_worker = list_entry(worker_list.next,
+            struct worker_conf_stream, worker_list_node);
+    struct queue_conf_stream *queue_cfg = rte_malloc(NULL,
+            sizeof(struct queue_conf_stream), RTE_CACHE_LINE_SIZE);
+    if (!queue_cfg) {
+        RTE_LOG(ERR, NETIF, "%s: no memory\n", __func__);
+        return;
+    }
+
+    for (ii = 0; ii < NETIF_MAX_QUEUES; ii++) {
+        queue_cfg->tx_queues[ii] = NETIF_MAX_QUEUES;
+        queue_cfg->rx_queues[ii] = NETIF_MAX_QUEUES;
+        queue_cfg->isol_rxq_lcore_ids[ii] = NETIF_LCORE_ID_INVALID;
+    }
+    queue_cfg->isol_rxq_ring_sz = NETIF_ISOL_RXQ_RING_SZ_DEF;
+
+    str = VECTOR_SLOT(tokens, 1);
+    RTE_LOG(INFO, NETIF, "worker %s:%s queue config\n", current_worker->name, str);
+    strncpy(queue_cfg->port_name, str, sizeof(queue_cfg->port_name));
+
+    list_add(&queue_cfg->queue_list_node, &current_worker->port_list);
+}
+
+static void rx_queue_ids_handler(vector_t tokens)
+{
+    uint32_t ii;
+    int qid;
+    char *str;
+    struct worker_conf_stream *current_worker = list_entry(worker_list.next,
+            struct worker_conf_stream, worker_list_node);
+    struct queue_conf_stream *current_port = list_entry(current_worker->port_list.next,
+            struct queue_conf_stream, queue_list_node);
+
+    for (ii = 0; ii < VECTOR_SIZE(tokens) - 1; ii++) {
+        str = VECTOR_SLOT(tokens, ii + 1);
+        qid = atoi(str);
+        if (qid < 0 || qid >= NETIF_MAX_QUEUES) {
+            RTE_LOG(WARNING, NETIF, "invalid worker %s:%s rx_queue_id %s, using "
+                    "default 0\n", current_worker->name, current_port->port_name, str);
+            current_port->rx_queues[ii] = 0; /* using default worker config array */
+        } else {
+            RTE_LOG(WARNING, NETIF, "worker %s:%s rx_queue_id += %d\n",
+                    current_worker->name, current_port->port_name, qid);
+            current_port->rx_queues[ii] = qid;
+        }
+    }
+
+    for ( ; ii < NETIF_MAX_QUEUES; ii++) /* unused space */
+        current_port->rx_queues[ii] = NETIF_MAX_QUEUES;
+}
+
+static void tx_queue_ids_handler(vector_t tokens)
+{
+    uint32_t ii;
+    int qid;
+    char *str;
+    struct worker_conf_stream *current_worker = list_entry(worker_list.next,
+            struct worker_conf_stream, worker_list_node);
+    struct queue_conf_stream *current_port = list_entry(current_worker->port_list.next,
+            struct queue_conf_stream, queue_list_node);
+
+    for (ii = 0; ii < VECTOR_SIZE(tokens) - 1; ii++) {
+        str = VECTOR_SLOT(tokens, ii + 1);
+        qid = atoi(str);
+        if (qid < 0 || qid >= NETIF_MAX_QUEUES) {
+            RTE_LOG(WARNING, NETIF, "invalid worker %s:%s tx_queue_id %s, uisng "
+                    "default 0\n", current_worker->name, current_port->port_name, str);
+            current_port->tx_queues[ii] = 0; /* using default worker config array */
+        } else {
+            RTE_LOG(WARNING, NETIF, "worker %s:%s tx_queue_id += %d\n",
+                    current_worker->name, current_port->port_name, qid);
+            current_port->tx_queues[ii] = qid;
+        }
+    }
+
+    for ( ; ii < NETIF_MAX_QUEUES; ii++) /* unused space */
+        current_port->tx_queues[ii] = NETIF_MAX_QUEUES;
+}
+
+static void isol_rx_cpu_ids_handler(vector_t tokens)
+{
+    uint32_t ii; 
+    int cid;
+    char *str = set_value(tokens);
+    struct worker_conf_stream *current_worker = list_entry(worker_list.next,
+            struct worker_conf_stream, worker_list_node);
+    struct queue_conf_stream *current_port = list_entry(current_worker->port_list.next,
+            struct queue_conf_stream, queue_list_node);
+
+    for (ii = 0; ii < VECTOR_SIZE(tokens) - 1; ii++) {
+        str = VECTOR_SLOT(tokens, ii + 1);
+        cid = atoi(str);
+        if (cid <= 0 || cid >= NDF_MAX_LCORE) {
+            RTE_LOG(WARNING, NETIF, "invalid worker %s:%s:isol_rx_cpu_ids[%d] %s\n",
+                    current_worker->name, current_port->port_name, ii, str);
+            current_port->isol_rxq_lcore_ids[ii] = NETIF_LCORE_ID_INVALID;
+        } else {
+            RTE_LOG(INFO, NETIF, "worker %s:%s:isol_rx_cpu_ids[%d] = %d\n",
+                    current_worker->name, current_port->port_name, ii, cid);
+            current_port->isol_rxq_lcore_ids[ii] = cid;
+        }
+    }
+}
+
+static void isol_rxq_ring_sz_handler(vector_t tokens)
+{
+    int isol_rxq_ring_sz;
+    char *str = set_value(tokens);
+    struct worker_conf_stream *current_worker = list_entry(worker_list.next,
+            struct worker_conf_stream, worker_list_node);
+    struct queue_conf_stream *current_port = list_entry(current_worker->port_list.next,
+            struct queue_conf_stream, queue_list_node);
+
+    assert(str);
+    if (strspn(str, "0123456789") != strlen(str)) {
+        RTE_LOG(WARNING, NETIF, "invalid worker %s:%s:isol_rxq_ring_sz %s,"
+                " using default %d\n", current_worker->name, current_port->port_name,
+                str, NETIF_ISOL_RXQ_RING_SZ_DEF);
+        current_port->isol_rxq_ring_sz = NETIF_ISOL_RXQ_RING_SZ_DEF;
+    } else {
+        isol_rxq_ring_sz = atoi(str);
+        RTE_LOG(INFO, NETIF, "worker %s:%s:isol_rxq_ring_sz = %d\n",
+                current_worker->name, current_port->port_name, isol_rxq_ring_sz);
+        current_port->isol_rxq_ring_sz = isol_rxq_ring_sz;
+    }
+
+    FREE_PTR(str);
+}
+
+void netif_keyword_value_init(void)
+{
+    if (netdefender_state_get() == NET_DEFENSER_STATE_INIT) {
+        /* KW_TYPE_INIT keyword */
+        netif_pktpool_nb_mbuf = NETIF_PKTPOOL_NB_MBUF_DEF;
+        netif_pktpool_mbuf_cache = NETIF_PKTPOOL_MBUF_CACHE_DEF;
+    }
+    /* KW_TYPE_NORMAL keyword */
+}
+
+void install_netif_keywords(void)
+{
+    install_keyword_root("netif_defs", netif_defs_handler);
+    install_keyword("pktpool_size", pktpool_size_handler, KW_TYPE_INIT);
+    install_keyword("pktpool_cache", pktpool_cache_handler, KW_TYPE_INIT);
+    //install_keyword("fdir_mode", fdir_mode_handler, KW_TYPE_INIT);
+    install_keyword("device", device_handler, KW_TYPE_INIT);
+    install_sublevel();
+    install_keyword("rx", NULL, KW_TYPE_INIT);
+    install_sublevel();
+    install_keyword("queue_number", rx_queue_number_handler, KW_TYPE_INIT);
+    install_keyword("descriptor_number", rx_desc_nb_handler, KW_TYPE_INIT);
+    install_keyword("rss", rss_handler, KW_TYPE_INIT);
+    install_sublevel_end();
+    install_keyword("tx", NULL, KW_TYPE_INIT);
+    install_sublevel();
+    install_keyword("queue_number", tx_queue_number_handler, KW_TYPE_INIT);
+    install_keyword("descriptor_number", tx_desc_nb_handler, KW_TYPE_INIT);
+    install_keyword("mbuf_fast_free", tx_mbuf_fast_free_handler, KW_TYPE_INIT);
+    install_sublevel_end();
+    install_keyword("promisc_mode", promisc_mode_handler, KW_TYPE_INIT);
+    install_keyword("allmulticast", allmulticast_handler, KW_TYPE_INIT);
+    install_keyword("mtu", custom_mtu_handler,KW_TYPE_INIT);
+    install_keyword("kni_name", kni_name_handler, KW_TYPE_INIT);
+    install_sublevel_end();
+
+    install_keyword_root("worker_defs", worker_defs_handler);
+    install_keyword("worker", worker_handler, KW_TYPE_INIT);
+    install_sublevel();
+    install_keyword("type", worker_type_handler, KW_TYPE_INIT);
+    install_keyword("cpu_id", cpu_id_handler, KW_TYPE_INIT);
+
+    install_keyword("port", worker_port_handler, KW_TYPE_INIT);
+    install_sublevel();
+    install_keyword("rx_queue_ids", rx_queue_ids_handler, KW_TYPE_INIT);
+    install_keyword("tx_queue_ids", tx_queue_ids_handler, KW_TYPE_INIT);
+    install_keyword("isol_rx_cpu_ids", isol_rx_cpu_ids_handler, KW_TYPE_INIT);
+    install_keyword("isol_rxq_ring_sz", isol_rxq_ring_sz_handler, KW_TYPE_INIT);
+    install_sublevel_end();
+    install_sublevel_end();
 }

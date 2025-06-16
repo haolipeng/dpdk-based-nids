@@ -13,67 +13,77 @@ NetDefender是一个高性能的网络入侵检测系统(NIDS)，基于DPDK构�
 - 实时告警和日志记录
 - 可扩展的插件架构
 
+
+
 ## 依赖项
 
-- 操作系统: Linux (推荐Ubuntu 20.04+或CentOS 8+)
-- 编译器: GCC 7+
-- DPDK 20.11+
+- 操作系统:  (推荐Ubuntu 20.04+)
+- 编译器: GCC 9+
+- DPDK 24.11
 - CMake 3.12+
 - pkg-config
 - libnuma-dev
 - libpcap-dev (可选，用于离线分析)
 
-## 构建和安装
 
-### 快速安装（包括依赖项）
 
-```bash
-sudo ./scripts/install.sh --deps
+## 环境安装
+
+编译源代码
+
+使用 meson-ninja 构建 DPDK，并为 DPDK 应用程序（eta加密流量分析）导出环境变量 PKG_CONFIG_PATH
+
+```
+#下载dpdk源代码后进入源码目录
+cd dpdk-24.11
+
+mkdir dpdklib                 # user desired install folder
+mkdir dpdkbuild               # user desired build folder
+
+meson -Denable_kmods=true -Dprefix=dpdklib dpdkbuild
+
+#使用ninja编译
+ninja -C dpdkbuild
+cd dpdkbuild; 
+ninja install
+
+#导出环境变量
+在/etc/profile文件中添加如下内容：
+export PKG_CONFIG_PATH=$(pwd)/../dpdklib/lib64/pkgconfig/
 ```
 
-### 手动构建
 
-1. 安装DPDK及其依赖项
 
-   Ubuntu/Debian:
-   ```bash
-   sudo apt-get update
-   sudo apt-get install -y build-essential cmake pkg-config libnuma-dev
-   sudo apt-get install -y dpdk dpdk-dev libdpdk-dev
-   ```
+加载dpdk驱动
+modprobe uio_pci_generic
 
-   CentOS/RHEL/Fedora:
-   ```bash
-   sudo dnf install -y gcc gcc-c++ make cmake pkgconfig numactl-devel
-   sudo dnf install -y dpdk dpdk-devel
-   ```
 
-2. 构建NetDefender
 
-   ```bash
-   ./scripts/build.sh
-   ```
+为网口绑定dpdk驱动
 
-3. 安装（可选）
+./dpdk-devbind.py -b uio_pci_generic 0000:00:19.0
 
-   ```bash
-   sudo ./scripts/build.sh --install
-   ```
+加载驱动后，显示如下：
 
-### 构建选项
+```
+root@haolipeng-ThinkPad-T450:/home/work/dpdk-stable-24.11.1/usertools# ./dpdk-devbind.py --status
 
-构建脚本支持多种选项：
+Network devices using DPDK-compatible driver
+============================================
+0000:00:19.0 'Ethernet Connection (3) I218-LM 15a2' drv=uio_pci_generic unused=e1000e,vfio-pci
 
-```bash
-./scripts/build.sh --help
+Network devices using kernel driver
+===================================
+0000:03:00.0 'Wireless 7265 095b' if=wlp3s0 drv=iwlwifi unused=vfio-pci,uio_pci_generic *Active*
 ```
 
-常用选项：
-- `--debug`: 构建Debug版本
-- `--asan`: 启用地址消毒器
-- `--clean`: 在构建前清理构建目录
-- `--no-tests`: 不构建测试
-- `--no-examples`: 不构建示例
+
+
+设置大页内存（可选项，推荐设置，未设置也可以启动程序）
+
+
+
+
 
 ## 使用方法
 
@@ -94,7 +104,7 @@ sudo ./build/examples/capture_demo -l 0-1 -n 4 -- -p 0
 sudo ./build/examples/ids_demo -l 0-3 -n 4 -- rules/default.rules
 ```
 
-## 项目结构
+## 项目结构（需持续更新）
 
 ```
 NetDefender/
@@ -114,21 +124,7 @@ NetDefender/
 ## 架构设计
 每个核心做各自逻辑核心的事情，为每个核心定义了不同的角色，不同角色做不同的逻辑流程。
 
-明天2025-06-04，去写netif_port_start这个函数 TODO:。
 
-## 贡献指南
-
-欢迎贡献代码、修复问题或添加新功能！请遵循以下步骤：
-
-1. Fork项目
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 创建Pull Request
-
-## 许可证
-
-本项目采用MIT许可证 - 详情请查看 [LICENSE](LICENSE) 文件
 
 ## 构建配置选项
 
@@ -141,10 +137,10 @@ NetDefender/
 cmake .. -DNDF_MAX_SOCKET=4
 ```
 
-#### 使用 CMake GUI 或 ccmake：
-在配置界面中设置 `NDF_MAX_SOCKET` 变量的值。
+
 
 #### 默认值：
+
 如果未指定，默认值为 32。
 
 #### 示例：
@@ -160,3 +156,5 @@ make
 ```
 
 这个配置选项替代了之前在 `src/common.h` 中的硬编码宏定义，使得在不修改源代码的情况下就能调整系统参数。 
+
+对于我们来说，还是有很多东西都是可以做的。

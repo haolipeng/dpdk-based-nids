@@ -6,25 +6,9 @@ if(NOT DEFINED DPDK_INCLUDE_DIRS)
     message(FATAL_ERROR "DPDK configuration not found. Please ensure DPDK is properly configured in parent CMakeLists.txt")
 endif()
 
-# 源文件列表
-set(SRC_FILES
-    main.c
-    global_data.c
-    pidfile.c
-    common.c
-    scheduler.c
-    netif.c
-)
-
-# 头文件列表
-set(HEADER_FILES
-    dpdk.h
-    global_data.h
-    pidfile.h
-    common.h
-    scheduler.h
-    netif.h
-)
+# 自动获取源文件和头文件
+file(GLOB SRC_FILES "*.c")
+file(GLOB HEADER_FILES "*.h")
 
 # 创建可执行文件
 add_executable(dpdk_nids ${SRC_FILES} ${HEADER_FILES})

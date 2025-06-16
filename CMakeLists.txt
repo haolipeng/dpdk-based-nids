@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.12)
 project(NetDefender VERSION 1.0.0 LANGUAGES C CXX)
 
+# 设置输出目录
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
 # 设置C++标准 - 提高到C++11以更好地处理现代特性
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +23,8 @@ string(TIMESTAMP DATE_STRING "%Y-%m-%d %H:%M:%S")
 option(BUILD_TESTS "Build test cases" OFF)
 option(BUILD_EXAMPLES "Build examples" OFF)
 option(ENABLE_ASAN "Enable address sanitizer" OFF)
+option(ENABLE_DEBUG "Enable debug build" ON)
+option(ENABLE_OPTIMIZATION "Enable optimization" OFF)
 
 # 项目架构选项
 option(ENABLE_CPP_MODULES "Enable C++ implementation for specified modules" OFF)
@@ -27,6 +34,10 @@ set(NDF_MAX_SOCKET 32 CACHE STRING "Maximum number of sockets")
 
 # 支持C和C++之间的相互调用
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+# 设置安装路径
+include(GNUInstallDirs)
+set(CMAKE_INSTALL_PREFIX "/usr/local" CACHE PATH "Installation prefix")
 
 # 尝试查找DPDK库
 # 首先尝试使用CMake的find_package
@@ -95,14 +106,28 @@ add_compile_options(
     -Wall
     -Wextra
     -Werror
-    -O2
     -Wno-unused-variable
+    -Wno-unused-parameter
     -Wno-unused-function
     -Wno-format-truncation
+    -Wno-int-conversion
+    -Wno-stringop-overflow
     -DNET_DEFENSER_VERSION="${VERSION_STRING}"
     -DNET_DEFENSER_BUILD_DATE="${DATE_STRING}"
     -DNDF_MAX_SOCKET=${NDF_MAX_SOCKET}
 )
+
+# 根据选项设置优化级别
+if(ENABLE_OPTIMIZATION)
+    add_compile_options(-O2)
+else()
+    add_compile_options(-O0)
+endif()
+
+# 调试选项
+if(ENABLE_DEBUG)
+    add_compile_options(-g -DDEBUG)
+endif()
 
 # 特定语言的编译选项
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -std=c99")
@@ -127,7 +152,6 @@ if(BUILD_EXAMPLES)
 endif()
 
 # 安装配置
-include(GNUInstallDirs)
 install(DIRECTORY include/
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-) 
+)
