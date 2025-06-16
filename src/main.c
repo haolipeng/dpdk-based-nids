@@ -182,9 +182,9 @@ int main(int argc, char *argv[])
     /**
      * add application agruments parse before EAL ones.
      * use it like the following:
-     * ./dpvs -v
+     * ./dpdk_nids -v
      * OR
-     * ./dpvs -- -n 4 -l 0-11 (if you want to use eal arguments)
+     * ./dpdk_nids -- -n 4 -l 0-11 (if you want to use eal arguments)
      */
     err = parse_app_args(argc, argv);
     if (err < 0) {

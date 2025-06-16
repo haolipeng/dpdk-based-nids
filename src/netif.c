@@ -726,7 +726,7 @@ static int __netif_update_rss_reta(struct netif_port *port)
     err = get_configured_rss_queues(port->id, rssq, &nrssq);
     if (err != ENDF_OK)
         return err;
-#ifdef CONFIG_DPVS_NETIF_DEBUG
+#ifdef CONFIG_NDF_NETIF_DEBUG
     printf("RSS QUEUES(%s): ", port->name);
     for (i = 0; i < nrssq; i++) {
         printf("%-4d", rssq[i]);
