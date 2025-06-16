@@ -112,8 +112,8 @@ add_compile_options(
     -Wno-format-truncation
     -Wno-int-conversion
     -Wno-stringop-overflow
-    -DNET_DEFENSER_VERSION="${VERSION_STRING}"
-    -DNET_DEFENSER_BUILD_DATE="${DATE_STRING}"
+    -DNET_DEFENDER_VERSION="${VERSION_STRING}"
+    -DNET_DEFENDER_BUILD_DATE="${DATE_STRING}"
     -DNDF_MAX_SOCKET=${NDF_MAX_SOCKET}
 )
 

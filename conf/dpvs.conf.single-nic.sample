@@ -79,71 +79,6 @@ worker_defs {
             ! isol_rxq_ring_sz 1048576
         }
     }
-
-    <init> worker   cpu4 {
-        type        slave
-        cpu_id      4
-        port        dpdk0 {
-            rx_queue_ids     3
-            tx_queue_ids     3
-            ! isol_rx_cpu_ids  12
-            ! isol_rxq_ring_sz 1048576
-        }
-    }
-
-    <init> worker   cpu5 {
-        type        slave
-        cpu_id      5
-        port        dpdk0 {
-            rx_queue_ids     4
-            tx_queue_ids     4
-            ! isol_rx_cpu_ids  13
-            ! isol_rxq_ring_sz 1048576
-        }
-    }
-
-    <init> worker   cpu6 {
-        type        slave
-        cpu_id      6
-        port        dpdk0 {
-            rx_queue_ids     5
-            tx_queue_ids     5
-            ! isol_rx_cpu_ids  14
-            ! isol_rxq_ring_sz 1048576
-        }
-    }
-
-    <init> worker   cpu7 {
-        type        slave
-        cpu_id      7
-        port        dpdk0 {
-            rx_queue_ids     6
-            tx_queue_ids     6
-            ! isol_rx_cpu_ids  15
-            ! isol_rxq_ring_sz 1048576
-        }
-    }
-
-    <init> worker   cpu8 {
-        type        slave
-        cpu_id      8
-        ! icmp_redirect_core
-        port        dpdk0 {
-            rx_queue_ids     7
-            tx_queue_ids     7
-            ! isol_rx_cpu_ids  16
-            ! isol_rxq_ring_sz 1048576
-        }
-    }
-
-    !<init> worker   cpu17 {
-    !    type        kni
-    !    cpu_id      17
-    !    port        dpdk0 {
-    !        rx_queue_ids     8
-    !        tx_queue_ids     8
-    !    }
-    !}
 }
 
 ! timer config
@@ -152,101 +87,12 @@ timer_defs {
     schedule_interval    500
 }
 
-! dpvs ipset config
-ipset_defs {
-    <init> ipset_hash_pool_size 131072
-}
-
-! dpvs ipv4 config
-ipv4_defs {
-    forwarding                 off
-    <init> default_ttl         64
-    fragment {
-        <init> bucket_number   4096
-        <init> bucket_entries  16
-        <init> max_entries     4096
-        <init> ttl             1
-    }
-}
-
-! dpvs ipv6 config
-ipv6_defs {
-    disable                     off
-    forwarding                  off
-    route6 {
-        <init> method           hlist
-        recycle_time            10
-    }
-}
-
 ! control plane config
 ctrl_defs {
     lcore_msg {
         <init> ring_size                4096
         sync_msg_timeout_us             20000
         priority_level                  low
-    }
-}
-
-! ipvs config
-ipvs_defs {
-    conn {
-        <init> conn_pool_size       2097152
-        <init> conn_pool_cache      256
-        conn_init_timeout           3
-        ! expire_quiescent_template
-        ! <init> fast_xmit_close
-        ! <init> redirect           off
-    }
-
-    udp {
-        ! defence_udp_drop
-        uoa_mode        opp
-        uoa_max_trail   3
-        timeout {
-            oneway      60
-            normal      300
-            last        3
-        }
-    }
-
-    tcp {
-        ! defence_tcp_drop
-        timeout {
-            none        2
-            established 90
-            syn_sent    3
-            syn_recv    30
-            fin_wait    7
-            time_wait   7
-            close       3
-            close_wait  7
-            last_ack    7
-            listen      120
-            synack      30
-            last        2
-        }
-        synproxy {
-            synack_options {
-                mss             1452
-                ttl             63
-                sack
-                ! wscale        0
-                ! timestamp
-            }
-            close_client_window
-            ! defer_rs_syn
-            rs_syn_max_retry    3
-            ack_storm_thresh    10
-            max_ack_saved       3
-            conn_reuse_state {
-                close
-                time_wait
-                ! fin_wait
-                ! close_wait
-                ! last_ack
-           }
-        }
     }
 }
 

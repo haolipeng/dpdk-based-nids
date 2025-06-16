@@ -1847,7 +1847,7 @@ static void isol_rxq_ring_sz_handler(vector_t tokens)
 
 void netif_keyword_value_init(void)
 {
-    if (netdefender_state_get() == NET_DEFENSER_STATE_INIT) {
+    if (netdefender_state_get() == NET_DEFENDER_STATE_INIT) {
         /* KW_TYPE_INIT keyword */
         netif_pktpool_nb_mbuf = NETIF_PKTPOOL_NB_MBUF_DEF;
         netif_pktpool_mbuf_cache = NETIF_PKTPOOL_MBUF_CACHE_DEF;

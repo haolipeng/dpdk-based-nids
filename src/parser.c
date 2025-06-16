@@ -87,7 +87,7 @@ void install_keyword_root(char *str, keyword_callback_t handler)
 void install_keyword(char *str, keyword_callback_t handler, keyword_type_t type)
 {
     if ((type == KW_TYPE_INIT) &&
-            (netdefender_state_get() != NET_DEFENSER_STATE_INIT))
+            (netdefender_state_get() != NET_DEFENDER_STATE_INIT))
         handler = NULL;/* skip keywords only for initialization stage */
 
     keyword_alloc_sub(g_keywords, str, handler);

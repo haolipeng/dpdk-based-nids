@@ -88,10 +88,10 @@ typedef uint16_t queueid_t;
 #endif
 
 typedef enum {
-    NET_DEFENSER_STATE_STOP = 1,
-    NET_DEFENSER_STATE_INIT,
-    NET_DEFENSER_STATE_NORMAL,
-    NET_DEFENSER_STATE_FINISH,
+    NET_DEFENDER_STATE_STOP = 1,
+    NET_DEFENDER_STATE_INIT,
+    NET_DEFENDER_STATE_NORMAL,
+    NET_DEFENDER_STATE_FINISH,
 } netdefender_state_t;
 
 void netdefender_state_set(netdefender_state_t stat);

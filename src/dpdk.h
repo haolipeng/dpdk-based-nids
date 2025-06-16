@@ -42,11 +42,11 @@
 #include <rte_eth_bond.h>
 //#include "mbuf.h"
 
-#ifdef CONFIG_NET_DEFENSER_PDUMP
+#ifdef CONFIG_NET_DEFENDER_PDUMP
 #include <rte_pdump.h>
 #endif
 
-#ifdef CONFIG_NET_DEFENSER_LOG
+#ifdef CONFIG_NET_DEFENDER_LOG
 #ifdef RTE_LOG
 extern int netdefender_log(uint32_t level, uint32_t logtype, const char *func, int line,
         const char *format, ...) __rte_format_printf(5, 6);

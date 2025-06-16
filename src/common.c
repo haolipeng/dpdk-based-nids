@@ -1,7 +1,7 @@
 #include "common.h"
 #include <numa.h>
 
-static netdefender_state_t g_netdefender_tate = NET_DEFENSER_STATE_STOP;
+static netdefender_state_t g_netdefender_tate = NET_DEFENDER_STATE_STOP;
 
 void netdefender_state_set(netdefender_state_t stat)
 {

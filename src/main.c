@@ -121,8 +121,8 @@ static int parse_app_args(int argc, char **argv)
         switch (c) {
             case 'v':
                 fprintf(stderr, "netdefender version: %s, build on %s\n",
-                        NET_DEFENSER_VERSION,
-                        NET_DEFENSER_BUILD_DATE);
+                        NET_DEFENDER_VERSION,
+                        NET_DEFENDER_BUILD_DATE);
                 exit(EXIT_SUCCESS);
             case 'c':
                 netdefender_conf_file=optarg;
@@ -161,7 +161,7 @@ static int parse_app_args(int argc, char **argv)
     if (!netdefender_ipc_file)
         netdefender_ipc_file="/var/run/netdefender.ipc";
 
-    g_version = version_parse(NET_DEFENSER_VERSION);
+    g_version = version_parse(NET_DEFENDER_VERSION);
 
     return ret;
 }
@@ -199,7 +199,7 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    netdefender_state_set(NET_DEFENSER_STATE_INIT);
+    netdefender_state_set(NET_DEFENDER_STATE_INIT);
     if(get_numa_nodes() > NDF_MAX_SOCKET){
         fprintf(stderr, "NDF_MAX_SOCKET is smaller than system numa nodes!\n");
         return -1;
@@ -246,7 +246,7 @@ int main(int argc, char *argv[])
         goto end;
     }
 
-    netdefender_state_set(NET_DEFENSER_STATE_NORMAL);
+    netdefender_state_set(NET_DEFENDER_STATE_NORMAL);
 
     /* start control plane thread loop */
     ndf_lcore_start(1);
@@ -255,7 +255,7 @@ int main(int argc, char *argv[])
     
     // TODO: 主事件循环
 end:
-    netdefender_state_set(NET_DEFENSER_STATE_FINISH);
+    netdefender_state_set(NET_DEFENDER_STATE_FINISH);
     modules_term();
     
     return 0;
