@@ -55,6 +55,7 @@ struct netif_queue_conf
 {
     queueid_t id;
     uint16_t len;
+    struct rx_partner *isol_rxq;
     struct rte_mbuf* mbufs[NETIF_MAX_PKT_BURST];
 }__rte_cache_aligned;
 
@@ -83,6 +84,16 @@ struct netif_lcore_conf
     int nports; //此lcore处理的nic数量
     struct netif_port_conf pqs[NETIF_MAX_RTE_PORTS];
 }__rte_cache_aligned;
+
+/* isolate RX lcore */
+struct rx_partner {
+    lcoreid_t cid;
+    portid_t pid;
+    queueid_t qid;
+    struct rte_ring* rb;
+    struct netif_queue_conf *rxq; //reverse rxq pointer
+    struct list_head lnode;
+};
 
 /************************ data type for NIC ****************************/
 typedef enum {
@@ -138,6 +149,7 @@ void netif_cfgfile_term(void);
 
 /**************************** port API ******************************/
 struct netif_port* netif_port_get(portid_t id);
+struct netif_port* netif_port_get_by_name(const char *name);
 int netif_port_start(struct netif_port *port); // start nic and wait until up
 int netif_port_stop(struct netif_port *port); // stop nic
 

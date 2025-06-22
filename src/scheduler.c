@@ -21,6 +21,20 @@ int ndf_scheduler_term(void)
     return ENDF_OK;
 }
 
+void ndf_lcore_job_init(struct ndf_lcore_job *job, char *name,
+                         ndf_lcore_job_t type, job_pt func,
+                         uint32_t skip_loops)
+{
+    if (!job) {
+        return;
+    }
+
+    job->type = type;
+    job->func = func;
+    job->skip_loops = skip_loops;
+    snprintf(job->name, sizeof(job->name) - 1, "%s", name);
+}
+
 int ndf_lcore_job_register(struct ndf_lcore_job *lcore_job, ndf_lcore_role_t role)
 {
     struct ndf_lcore_job *cur;

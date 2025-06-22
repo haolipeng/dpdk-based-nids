@@ -9,6 +9,7 @@
         "rte_log.h": "c",
         "random": "c",
         "dpdk.h": "c",
-        "signal.h": "c"
+        "signal.h": "c",
+        "netif.h": "c"
     }
 }

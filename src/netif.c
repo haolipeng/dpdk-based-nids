@@ -6,6 +6,7 @@
 #include "scheduler.h"
 #include "vector.h"
 #include "parser.h"
+#include "timer.h"
 
 #define NETIF_PKTPOOL_NB_MBUF_DEF   65535
 #define NETIF_PKTPOOL_NB_MBUF_MIN   1023
@@ -110,6 +111,9 @@ static void netif_pktmbuf_pool_init(){
     }
 }
 
+/****************************************** timer  var ********************************************/
+static int timer_sched_interval_us;
+
 /****************************************** lcore  conf ********************************************/
 /* per-lcore isolated reception queues */
 static struct list_head isol_rxq_tab[NDF_MAX_LCORE];
@@ -118,6 +122,171 @@ static struct list_head isol_rxq_tab[NDF_MAX_LCORE];
 static struct netif_lcore_conf lcore_conf[NDF_MAX_LCORE];
 lcoreid_t lcore2index[NDF_MAX_LCORE + 1]; //维护port索引和lcore索引的映射关系
 portid_t port2index[NDF_MAX_LCORE][NETIF_MAX_PORTS];
+
+static int isol_rxq_add(lcoreid_t cid, portid_t pid, queueid_t qid,
+        unsigned rb_sz, struct netif_queue_conf *rxq);
+static void isol_rxq_del(struct rx_partner *isol_rxq, bool force);
+
+static inline void isol_rxq_init(void)
+{
+    int i;
+    for (i = 0; i < NDF_MAX_LCORE; i++) {
+        INIT_LIST_HEAD(&isol_rxq_tab[i]);
+    }
+}
+
+/* call me at initialization before lcore loop */
+static int isol_rxq_add(lcoreid_t cid, portid_t pid, queueid_t qid,
+                        unsigned rb_sz, struct netif_queue_conf *rxq)
+{
+    assert(cid <= NDF_MAX_LCORE);
+    int rb_sz_r;
+    struct rx_partner *isol_rxq;
+    struct rte_ring *rb;
+    char name[32];
+
+    isol_rxq = rte_zmalloc("isol_rxq", sizeof(struct rx_partner), 0);
+    if (unlikely(!isol_rxq))
+        return ENDF_NOMEM;
+
+    is_power2(rb_sz, 0, &rb_sz_r);
+    memset(name, 0, 32);
+    snprintf(name, sizeof(name) - 1, "isol_rxq_c%dp%dq%d", cid, pid, qid);
+
+    rb = rte_ring_create(name, rb_sz_r, rte_socket_id(),
+            RING_F_SP_ENQ | RING_F_SC_DEQ);
+    if (unlikely(!rb))
+        return ENDF_DPDKAPIFAIL;
+
+    isol_rxq->cid = cid;
+    isol_rxq->pid = pid;
+    isol_rxq->qid = qid;
+    isol_rxq->rxq = rxq;
+    isol_rxq->rb = rb;
+
+    list_add(&isol_rxq->lnode, &isol_rxq_tab[cid]);
+    rxq->isol_rxq = isol_rxq;
+
+    return ENDF_OK;
+}
+
+/* call me at termination */
+__rte_unused
+static void isol_rxq_del(struct rx_partner *isol_rxq, bool force)
+{
+    assert(isol_rxq);
+
+    /* stop recieving packets */
+    list_del(&isol_rxq->lnode);
+
+    if (force) {
+        /* dequeue all packets in the ring and drop them */
+        struct rte_mbuf *mbuf;
+        while (!rte_ring_dequeue(isol_rxq->rb, (void **)&mbuf))
+            rte_pktmbuf_free(mbuf);
+    } else {
+        /* wait until all packets in the ring processed */
+        while (!rte_ring_empty(isol_rxq->rb))
+            ;
+    }
+
+    /* remove isolate cpu packet reception */
+    isol_rxq->rxq->isol_rxq = NULL;
+
+    rte_ring_free(isol_rxq->rb);
+    rte_free(isol_rxq);
+
+    isol_rxq = NULL;
+}
+
+static void config_lcores(struct list_head *worker_list)
+{
+    int ii, tk;
+    int cpu_id_min, cpu_left, cpu_cnt;
+    lcoreid_t id = 0;
+    portid_t pid;
+    struct netif_port *port;
+    struct queue_conf_stream *queue;
+    struct worker_conf_stream *worker, *worker_next, *worker_min;
+
+    memset(lcore_conf, 0, sizeof(lcore_conf));
+
+    cpu_cnt = cpu_left = list_elems(worker_list);
+    list_for_each_entry_safe(worker, worker_next, worker_list, worker_list_node) {
+        if (!strcmp(worker->type, "master")) {
+            list_move_tail(&worker->worker_list_node, worker_list);
+            cpu_left--;
+        }
+        if (--cpu_cnt == 0)
+            break;
+    }
+
+    while (cpu_left > 0) {
+        cpu_id_min = NDF_MAX_LCORE;
+        worker_min = NULL;
+
+        tk = 0;
+        list_for_each_entry(worker, worker_list, worker_list_node) {
+            if (cpu_id_min > worker->cpu_id) {
+                cpu_id_min = worker->cpu_id;
+                worker_min = worker;
+            }
+            if (++tk >= cpu_left)
+                break;
+        }
+        assert(worker_min != NULL);
+
+        tk = 0;
+        lcore_conf[id].id = worker_min->cpu_id;
+        if (!strncmp(worker_min->type, "slave", sizeof("slave")))
+            lcore_conf[id].type = LCORE_ROLE_FWD_WORKER;
+        else if (!strncmp(worker_min->type, "kni", sizeof("kni")))
+            lcore_conf[id].type = LCORE_ROLE_KNI_WORKER;
+        else
+            lcore_conf[id].type = LCORE_ROLE_IDLE;
+
+        list_for_each_entry_reverse(queue, &worker_min->port_list, queue_list_node) {
+            port = netif_port_get_by_name(queue->port_name);
+            if (port)
+                pid = port->id;
+            else
+                pid = NETIF_PORT_ID_INVALID;
+            lcore_conf[id].pqs[tk].id = pid;
+
+            for (ii = 0; queue->rx_queues[ii] != NETIF_MAX_QUEUES && ii < NETIF_MAX_QUEUES;
+                 ii++) {
+                lcore_conf[id].pqs[tk].rxqs[ii].id = queue->rx_queues[ii];
+                if (queue->isol_rxq_lcore_ids[ii] != NETIF_LCORE_ID_INVALID) {
+                    if (isol_rxq_add(queue->isol_rxq_lcore_ids[ii],
+                                port->id, queue->rx_queues[ii],
+                                queue->isol_rxq_ring_sz,
+                                &lcore_conf[id].pqs[tk].rxqs[ii]) < 0) {
+                        RTE_LOG(ERR, NETIF, "%s: isol_rxq add failed for cpu%d:%s:"
+                                "rx%d, recieving locally instead.\n", __func__,
+                                worker_min->cpu_id, port->name, queue->rx_queues[ii]);
+                    } else {
+                        RTE_LOG(INFO, NETIF, "%s: isol_rxq on cpu%d with ring size %d is "
+                                "added for cpu%d:%s:rx%d\n", __func__,
+                                queue->isol_rxq_lcore_ids[ii], queue->isol_rxq_ring_sz,
+                                worker_min->cpu_id, port->name, queue->rx_queues[ii]);
+                    }
+                }
+            }
+            lcore_conf[id].pqs[tk].nrxq = ii;
+
+            for (ii = 0; queue->tx_queues[ii] != NETIF_MAX_QUEUES && ii < NETIF_MAX_QUEUES;
+                 ii++)
+                lcore_conf[id].pqs[tk].txqs[ii].id = queue->tx_queues[ii];
+            lcore_conf[id].pqs[tk].ntxq = ii;
+            tk++;
+        }
+        lcore_conf[id].nports = tk;
+        id++;
+
+        list_move_tail(&worker_min->worker_list_node, worker_list);
+        cpu_left--;
+    }
+}
 
 static int lcore_index_init(void)
 {
@@ -368,20 +537,216 @@ static struct ndf_lcore_job_array netif_jobs[NETIF_JOB_MAX] = {
     */
 };
 
+static int port_rx_queues_get(portid_t pid)
+{
+    int i = 0, j;
+    int rx_ports = 0;
+
+    while (lcore_conf[i].nports > 0) {
+        for (j = 0;  j < lcore_conf[i].nports; j++) {
+            if (lcore_conf[i].pqs[j].id == pid)
+                rx_ports += lcore_conf[i].pqs[j].nrxq;
+        }
+        i++;
+    }
+    return rx_ports;
+}
+
+static int port_tx_queues_get(portid_t pid)
+{
+    int i = 0, j;
+    int tx_ports = 0;
+
+    while (lcore_conf[i].nports > 0) {
+        for (j = 0;  j < lcore_conf[i].nports; j++) {
+            if (lcore_conf[i].pqs[j].id == pid)
+                tx_ports += lcore_conf[i].pqs[j].ntxq;
+        }
+        i++;
+    }
+    return tx_ports;
+}
+
+/*
+ * params:
+ *   @pid: [in] port id
+ *   @qids: [out] queue id array containing rss queues when return
+ *   @n_queues: [in,out], `qids` array length when input, rss queue number when return
+ */
+static int get_configured_rss_queues(portid_t pid, queueid_t *qids, int *n_queues)
+{
+    int i, j, k, tk = 0;
+    if (!qids || !n_queues || *n_queues < NETIF_MAX_QUEUES)
+        return EDPVS_INVAL;
+
+    for (i = 0; lcore_conf[i].nports > 0; i++) {
+        if (lcore_conf[i].type != LCORE_ROLE_FWD_WORKER)
+            continue;
+        for (j = 0; j < lcore_conf[i].nports; j++) {
+            if (lcore_conf[i].pqs[j].id == pid)
+                break;
+        }
+        if (lcore_conf[i].pqs[j].id != pid)
+            return EDPVS_INVAL;
+        for (k = 0; k < lcore_conf[i].pqs[j].nrxq; k++) {
+            qids[tk++] = lcore_conf[i].pqs[j].txqs[k].id;
+            if (tk > *n_queues)
+                return EDPVS_NOMEM;
+        }
+    }
+    *n_queues = tk;
+    return EDPVS_OK;
+}
+
+static uint8_t get_configured_port_nb(int lcores, const struct netif_lcore_conf *lcore_conf)
+{
+    int i = 0, j, k;
+    uint8_t ports_nb = 0;
+    bool is_exist;
+    portid_t pid, ports_array[NETIF_MAX_PORTS];
+
+    while (lcore_conf[i].nports > 0 && i < lcores) {
+        for (j = 0; j < lcore_conf[i].nports; j++) {
+            pid = lcore_conf[i].pqs[j].id;
+            is_exist = false;
+            for (k = 0; k < ports_nb; k++) {
+                if (ports_array[k] == pid) {
+                    is_exist = true;
+                    break;
+                }
+            }
+            if (!is_exist)
+                ports_array[ports_nb++] = pid;
+        }
+        i++;
+    }
+    return ports_nb;
+}
+
+#define LCONFCHK_MARK                       255
+#define LCONFCHK_OK                         0
+#define LCONFCHK_REPEATED_RX_QUEUE_ID       -2
+#define LCONFCHK_REPEATED_TX_QUEUE_ID       -3
+#define LCONFCHK_DISCONTINUOUS_QUEUE_ID     -4
+#define LCONFCHK_PORT_NOT_ENOUGH            -5
+#define LCONFCHK_INCORRECT_TX_QUEUE_NUM     -6
+#define LCONFCHK_NO_SLAVE_LCORES            -7
+
+static int check_lcore_conf(int lcores, const struct netif_lcore_conf *lcore_conf)
+{
+    int i = 0, j, k;
+    uint8_t nports, nqueues;
+    uint8_t nports_conf = get_configured_port_nb(lcores, lcore_conf);
+    portid_t pid;
+    queueid_t qid;
+    struct netif_lcore_conf mark;
+    memset(&mark, 0, sizeof(mark));
+    nports = dpvs_rte_eth_dev_count();
+    while (lcore_conf[i].nports > 0)
+    {
+        if (lcore_conf[i].nports > nports)
+            return LCONFCHK_PORT_NOT_ENOUGH;
+        for (j = 0; j < lcore_conf[i].nports; j++) {
+            pid = lcore_conf[i].pqs[j].id;
+            for (k = 0; k < lcore_conf[i].pqs[j].nrxq; k++) {
+                qid = lcore_conf[i].pqs[j].rxqs[k].id;
+                if (LCONFCHK_MARK == mark.pqs[pid].rxqs[qid].id) {
+                    RTE_LOG(ERR, NETIF, "rx qid: %d for cid: %d is already used.",
+                            qid, lcore_conf[i].id);
+                    return LCONFCHK_REPEATED_RX_QUEUE_ID;
+                } else
+                    mark.pqs[pid].rxqs[qid].id = LCONFCHK_MARK;
+            }
+            for (k = 0; k <lcore_conf[i].pqs[j].ntxq; k++) {
+                qid = lcore_conf[i].pqs[j].txqs[k].id;
+                if (LCONFCHK_MARK == mark.pqs[pid].txqs[qid].id) {
+                    RTE_LOG(ERR, NETIF, "tx qid: %d for cid: %d is already used.",
+                            qid, lcore_conf[i].id);
+                    return LCONFCHK_REPEATED_TX_QUEUE_ID;
+                } else
+                    mark.pqs[pid].txqs[qid].id = LCONFCHK_MARK;
+            }
+        }
+        if (++i >= lcores)
+            break;
+    }
+    if (i == 0)
+        return LCONFCHK_NO_SLAVE_LCORES;
+
+    for (i = 0; i < nports; i++) {
+        nqueues = port_rx_queues_get(i);
+        for (j = 0; j < nqueues; j++) {
+            //printf("[dpdk%d:rx%d] %d    ", i, j, mark.pqs[i].rxqs[j].id);
+            if (LCONFCHK_MARK != mark.pqs[i].rxqs[j].id) {
+                return LCONFCHK_DISCONTINUOUS_QUEUE_ID;
+            }
+        }
+        nqueues = port_tx_queues_get(i);
+        for (j = 0; j < nqueues; j++) {
+            //printf("[dpdk%d:tx%d] %d    ", i, j, mark.pqs[i].txqs[j].id);
+            if (LCONFCHK_MARK != mark.pqs[i].txqs[j].id) {
+                return LCONFCHK_DISCONTINUOUS_QUEUE_ID;
+            }
+        }
+    }
+
+    i = 0;
+    while (lcore_conf[i].nports > 0) {
+        if (lcore_conf[i].nports != nports_conf)
+            return LCONFCHK_INCORRECT_TX_QUEUE_NUM;
+        for (j = 0; j < lcore_conf[i].nports; j++)
+            if (lcore_conf[i].pqs[j].ntxq < 1)
+                return LCONFCHK_INCORRECT_TX_QUEUE_NUM;
+        if (++i >= lcores)
+            break;
+    }
+    return LCONFCHK_OK;
+}
+
 static void netif_lcore_init(){
     size_t i;
     int err;
     lcoreid_t cid;
+    char buf1[1024], buf2[1024];
 
-    //build lcore fst searching table
-    err = lcore_index_init();
-    if(err != ENDF_OK){
+    timer_sched_interval_us = dpvs_timer_sched_interval_get();
+
+    buf1[0] = buf2[0] = '\0';
+    for (cid = 0; cid < NDF_MAX_LCORE; cid++) {
+        if (rte_lcore_is_enabled(cid))
+            snprintf(&buf1[strlen(buf1)], sizeof(buf1)-strlen(buf1), "%4d", cid);
+        else
+            snprintf(&buf2[strlen(buf2)], sizeof(buf2)-strlen(buf2), "%4d", cid);
+    }
+    RTE_LOG(INFO, NETIF, "LCORE STATUS\n\tenabled: %s\n\tdisabled: %s\n", buf1, buf2);
+
+    /* init isolate rxqueue table */
+    isol_rxq_init();
+
+    /* check and set lcore config */
+    config_lcores(&worker_list);
+    if ((err = check_lcore_conf(rte_lcore_count(), lcore_conf)) != ENDF_OK)
+        rte_exit(EXIT_FAILURE, "%s: bad lcore configuration (error code: %d),"
+                " exit ...\n", __func__, err);
+
+    /* build lcore fast searching table */
+    if ((err = lcore_index_init()) != ENDF_OK)
         rte_exit(EXIT_FAILURE, "%s: lcore_index_init failed (cause: %s), exit ...\n",
                 __func__, ndf_strerror(err));
-    }
 
-    //build port fast searching table
+    /* build port fast searching table */
     port_index_init();
+
+    /* assign lcore roles */
+    lcore_role_init();
+
+    /* register lcore jobs*/
+    if (g_kni_lcore_id == 0) {
+        netif_jobs[5].role = LCORE_ROLE_MASTER;
+        //TODO:modify by haolipeng
+        //ndf_lcore_job_init(&netif_jobs[5].job, "kni_master_proc",
+                            //LCORE_JOB_LOOP, kni_lcore_loop, 0);
+    }
 
     for (i = 0; i < NELEMS(netif_jobs); i++) {
         err = ndf_lcore_job_register(&netif_jobs[i].job, netif_jobs[i].role);
@@ -916,6 +1281,24 @@ struct netif_port* netif_port_get(portid_t id)
 
     list_for_each_entry(port, &port_tab[hash], list) {
         if (port->id == id) {
+            return port;
+        }
+    }
+
+    return NULL;
+}
+
+struct netif_port* netif_port_get_by_name(const char *name)
+{
+    int nhash;
+    struct netif_port *port;
+
+    if (!name || strlen(name) <= 0)
+        return NULL;
+
+    nhash = port_ntab_hashkey(name, strlen(name));
+    list_for_each_entry(port, &port_ntab[nhash], nlist) {
+        if (!strcmp(port->name, name)) {
             return port;
         }
     }
@@ -1702,9 +2085,6 @@ static void cpu_id_handler(vector_t tokens)
         cpu_id = atoi(str);
         RTE_LOG(INFO, NETIF, "%s:cpu_id = %d\n", current_worker->name, cpu_id);
         current_worker->cpu_id = cpu_id;
-
-        if (!strcmp(current_worker->type, "kni"))
-            g_kni_lcore_id = cpu_id;
     }
 
     FREE_PTR(str);
