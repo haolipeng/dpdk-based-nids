@@ -3,6 +3,6 @@
 #include <stdint.h>
 #include <sys/time.h>
 
-int dpvs_timer_sched_interval_get(void);
+int ndf_timer_sched_interval_get(void);
 
 #endif

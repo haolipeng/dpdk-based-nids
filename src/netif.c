@@ -577,7 +577,7 @@ static int get_configured_rss_queues(portid_t pid, queueid_t *qids, int *n_queue
 {
     int i, j, k, tk = 0;
     if (!qids || !n_queues || *n_queues < NETIF_MAX_QUEUES)
-        return EDPVS_INVAL;
+        return ENDF_INVAL;
 
     for (i = 0; lcore_conf[i].nports > 0; i++) {
         if (lcore_conf[i].type != LCORE_ROLE_FWD_WORKER)
@@ -587,15 +587,15 @@ static int get_configured_rss_queues(portid_t pid, queueid_t *qids, int *n_queue
                 break;
         }
         if (lcore_conf[i].pqs[j].id != pid)
-            return EDPVS_INVAL;
+            return ENDF_INVAL;
         for (k = 0; k < lcore_conf[i].pqs[j].nrxq; k++) {
             qids[tk++] = lcore_conf[i].pqs[j].txqs[k].id;
             if (tk > *n_queues)
-                return EDPVS_NOMEM;
+                return ENDF_NOMEM;
         }
     }
     *n_queues = tk;
-    return EDPVS_OK;
+    return ENDF_OK;
 }
 
 static uint8_t get_configured_port_nb(int lcores, const struct netif_lcore_conf *lcore_conf)
@@ -641,7 +641,7 @@ static int check_lcore_conf(int lcores, const struct netif_lcore_conf *lcore_con
     queueid_t qid;
     struct netif_lcore_conf mark;
     memset(&mark, 0, sizeof(mark));
-    nports = dpvs_rte_eth_dev_count();
+    nports = ndf_rte_eth_dev_count();
     while (lcore_conf[i].nports > 0)
     {
         if (lcore_conf[i].nports > nports)
@@ -709,7 +709,7 @@ static void netif_lcore_init(){
     lcoreid_t cid;
     char buf1[1024], buf2[1024];
 
-    timer_sched_interval_us = dpvs_timer_sched_interval_get();
+    timer_sched_interval_us = ndf_timer_sched_interval_get();
 
     buf1[0] = buf2[0] = '\0';
     for (cid = 0; cid < NDF_MAX_LCORE; cid++) {
@@ -768,70 +768,6 @@ static inline struct port_conf_stream *get_port_conf_stream(const char *name)
     }
 
     return NULL;
-}
-
-/*
- * params:
- *   @pid: [in] port id
- *   @qids: [out] queue id array containing rss queues when return
- *   @n_queues: [in,out], `qids` array length when input, rss queue number when return
- */
-static int get_configured_rss_queues(portid_t pid, queueid_t *qids, int *n_queues)
-{
-    int i, j, k, tk = 0;
-    if (!qids || !n_queues || *n_queues < NETIF_MAX_QUEUES)
-        return ENDF_INVAL;
-
-    for (i = 0; lcore_conf[i].nports > 0; i++) {
-        if (lcore_conf[i].type != LCORE_ROLE_FWD_WORKER)
-            continue;
-
-        for (j = 0; j < lcore_conf[i].nports; j++) {
-            if (lcore_conf[i].pqs[j].id == pid)
-                break;
-        }
-
-        if (lcore_conf[i].pqs[j].id != pid)
-            return ENDF_INVAL;
-
-        for (k = 0; k < lcore_conf[i].pqs[j].nrxq; k++) {
-            qids[tk++] = lcore_conf[i].pqs[j].txqs[k].id;
-            if (tk > *n_queues)
-                return ENDF_NOMEM;
-        }
-    }
-    *n_queues = tk;
-    return ENDF_OK;
-}
-
-static int port_rx_queues_get(portid_t pid)
-{
-    int i = 0, j;
-    int rx_ports = 0;
-
-    while (lcore_conf[i].nports > 0) {
-        for (j = 0;  j < lcore_conf[i].nports; j++) {
-            if (lcore_conf[i].pqs[j].id == pid)
-                rx_ports += lcore_conf[i].pqs[j].nrxq;
-        }
-        i++;
-    }
-    return rx_ports;
-}
-
-static int port_tx_queues_get(portid_t pid)
-{
-    int i = 0, j;
-    int tx_ports = 0;
-
-    while (lcore_conf[i].nports > 0) {
-        for (j = 0;  j < lcore_conf[i].nports; j++) {
-            if (lcore_conf[i].pqs[j].id == pid)
-                tx_ports += lcore_conf[i].pqs[j].ntxq;
-        }
-        i++;
-    }
-    return tx_ports;
 }
 
 static int rss_resolve_proc(char *rss)
