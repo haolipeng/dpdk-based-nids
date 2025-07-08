@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.12)
 project(NetDefender VERSION 1.0.0 LANGUAGES C CXX)
 
+# 默认生成compile_commands.json文件，用于IDE代码跳转和智能提示
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# 将compile_commands.json输出到项目根目录（与build文件夹同级）
+set(CMAKE_EXPORT_COMPILE_COMMANDS_OUTPUT_DIR ${CMAKE_SOURCE_DIR})
+
 # 设置输出目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})

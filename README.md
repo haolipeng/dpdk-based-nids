@@ -90,7 +90,7 @@ Network devices using kernel driver
 ### 运行捕获示例
 
 ```bash
-sudo ./build/examples/capture_demo -l 0-1 -n 4 -- -p 0
+./build/dpdk_nids -c conf/netdefender.conf
 ```
 
 参数说明：

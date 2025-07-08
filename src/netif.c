@@ -1641,8 +1641,22 @@ static void netif_port_init(void)
         rte_exit(EXIT_FAILURE, "No dpdk ports found!\n"
                 "Possibly nic or driver is not dpdk-compatible.\n");
 
+    // 设置物理端口范围，这是DPVS的设计模式
+    phy_pid_end = nports;
+
     //这块需要配置文件中配置，目前没有配置文件，所以需要手动配置
     nports_cfg = list_elems(&port_list);
+    RTE_LOG(INFO, NETIF, "DPDK detected %d ports, config file has %d ports\n", nports, nports_cfg);
+    
+    // 调试：打印port_list的内容
+    if (nports_cfg == 0) {
+        RTE_LOG(WARNING, NETIF, "port_list is empty! Checking if device_handler was called...\n");
+        struct port_conf_stream *port_cfg;
+        list_for_each_entry(port_cfg, &port_list, port_list_node) {
+            RTE_LOG(INFO, NETIF, "Found port config: %s (port_id=%d)\n", port_cfg->name, port_cfg->port_id);
+        }
+    }
+    
     if (nports_cfg < nports)
         rte_exit(EXIT_FAILURE, "ports in DPDK RTE (%d) != ports in setting.conf(%d)\n",
                 nports, nports_cfg);
@@ -1760,6 +1774,8 @@ static void device_handler(vector_t tokens)
     strncpy(port_cfg->rss, "tcp", sizeof(port_cfg->rss));
 
     list_add(&port_cfg->port_list_node, &port_list);
+    RTE_LOG(INFO, NETIF, "Added device %s to port_list, total devices: %d\n", 
+            port_cfg->name, list_elems(&port_list));
 }
 
 static void rx_queue_number_handler(vector_t tokens)
