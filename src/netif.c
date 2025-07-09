@@ -526,7 +526,7 @@ static void lcore_job_timer_manage(void *args)
 }
 
 //网络工作任务的最大值
-#define NETIF_JOB_MAX   6
+#define NETIF_JOB_MAX   5
 
 static struct ndf_lcore_job_array netif_jobs[NETIF_JOB_MAX] = {
     [0] = {
@@ -829,18 +829,22 @@ static void netif_lcore_init(){
 
     /* register lcore jobs*/
     if (g_kni_lcore_id == 0) {
-        netif_jobs[5].role = LCORE_ROLE_MASTER;
+        //netif_jobs[5].role = LCORE_ROLE_MASTER;
         //TODO:modify by haolipeng
         //ndf_lcore_job_init(&netif_jobs[5].job, "kni_master_proc",
                             //LCORE_JOB_LOOP, kni_lcore_loop, 0);
     }
 
     for (i = 0; i < NELEMS(netif_jobs); i++) {
-        err = ndf_lcore_job_register(&netif_jobs[i].job, netif_jobs[i].role);
-        if (err < 0) {
-            rte_exit(EXIT_FAILURE, "%s: fail to register lcore job '%s', exit ...\n",
-                    __func__, netif_jobs[i].job.name);
-            break;
+        //TODO:modify by haolipeng
+        // Only register jobs that have a valid function pointer
+        if (netif_jobs[i].job.func != NULL) {
+            err = ndf_lcore_job_register(&netif_jobs[i].job, netif_jobs[i].role);
+            if (err < 0) {
+                rte_exit(EXIT_FAILURE, "%s: fail to register lcore job '%s', exit ...\n",
+                        __func__, netif_jobs[i].job.name);
+                break;
+            }
         }
     }
 }
