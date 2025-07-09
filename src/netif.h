@@ -95,6 +95,22 @@ struct rx_partner {
     struct list_head lnode;
 };
 
+/**************************** lcore statistics ***************************/
+struct netif_lcore_stats
+{
+    uint64_t lcore_loop;        /* Total number of loops since start */
+    uint64_t pktburst;          /* Total number of receive bursts */
+    uint64_t zpktburst;         /* Total number of receive bursts with ZERO packets */
+    uint64_t fpktburst;         /* Total number of receive bursts with MAX packets */
+    uint64_t z2hpktburst;       /* Total number of receive bursts with [0, 0.5*MAX] packets */
+    uint64_t h2fpktburst;       /* Total number of receive bursts with (0.5*MAX, MAX] packets */
+    uint64_t ipackets;          /* Total number of successfully received packets. */
+    uint64_t ibytes;            /* Total number of successfully received bytes. */
+    uint64_t opackets;          /* Total number of successfully transmitted packets. */
+    uint64_t obytes;            /* Total number of successfully transmitted bytes. */
+    uint64_t dropped;           /* Total number of dropped packets by software. */
+} __rte_cache_aligned;
+
 /************************ data type for NIC ****************************/
 typedef enum {
     PORT_TYPE_GENERAL,

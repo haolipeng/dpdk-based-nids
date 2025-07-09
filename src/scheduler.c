@@ -91,7 +91,11 @@ const char *ndf_lcore_role_str(ndf_lcore_role_t role)
 }
 
 static inline void do_lcore_job(struct ndf_lcore_job* job){
-    job->func(job->data);
+    if (job && job->func) {
+        job->func(job->data);
+    }else{
+        RTE_LOG(ERR, DSCHED, "lcore %02d job %s is NULL, returning\n", rte_lcore_id(), job->name);
+    }
 }
 
 static int ndf_job_loop(/* void* arg */)
@@ -100,16 +104,23 @@ static int ndf_job_loop(/* void* arg */)
     lcoreid_t cid = rte_lcore_id();
     ndf_lcore_role_t role = g_lcore_role[cid];//每一个核心都有自己的角色
 
+    RTE_LOG(INFO, DSCHED, "ndf_job_loop called for lcore %02d, role: %s\n", cid, ndf_lcore_role_str(role));
+
     if(cid >= NDF_MAX_LCORE){
+        RTE_LOG(ERR, DSCHED, "lcore %02d >= NDF_MAX_LCORE (%d), returning\n", cid, NDF_MAX_LCORE);
         return ENDF_OK;
     }
 
     /* skip irrelative job loops */
-    if (role == LCORE_ROLE_MAX)
+    if (role == LCORE_ROLE_MAX) {
+        RTE_LOG(ERR, DSCHED, "lcore %02d has invalid role LCORE_ROLE_MAX, returning\n", cid);
         return ENDF_INVAL;
+    }
 
-    if (role == LCORE_ROLE_IDLE)
+    if (role == LCORE_ROLE_IDLE) {
+        RTE_LOG(INFO, DSCHED, "lcore %02d is IDLE, returning\n", cid);
         return ENDF_IDLE;
+    }
 
     RTE_LOG(INFO, DSCHED, "lcore %02d enter %s loop\n", cid, ndf_lcore_role_str(role));
 
@@ -119,6 +130,7 @@ static int ndf_job_loop(/* void* arg */)
     }
 
     while(1){
+        
         ++this_poll_tick;
 
         /* do normal job */

@@ -54,18 +54,18 @@ struct port_conf_stream {
 };
 
 struct queue_conf_stream {
-    char port_name[32];
-    int rx_queues[NETIF_MAX_QUEUES];
-    int tx_queues[NETIF_MAX_QUEUES];
-    int isol_rxq_lcore_ids[NETIF_MAX_QUEUES];
-    int isol_rxq_ring_sz;
-    struct list_head queue_list_node;
+    char port_name[32];             // 端口名称
+    int rx_queues[NETIF_MAX_QUEUES]; // 接收队列ID数组      
+    int tx_queues[NETIF_MAX_QUEUES]; // 发送队列ID数组
+    int isol_rxq_lcore_ids[NETIF_MAX_QUEUES]; // 隔离接收队列的CPU核心ID数组
+    int isol_rxq_ring_sz; // 隔离接收队列的环大小
+    struct list_head queue_list_node; // 链表节点，用于将节点添加到链表中
 };
 
 struct worker_conf_stream {
-    int cpu_id;
-    char name[32];
-    char type[32];
+    int cpu_id;         // 核心ID
+    char name[32];      // 核心名称
+    char type[32];      // 核心类型
     struct list_head port_list;
     struct list_head worker_list_node;
 };
@@ -79,17 +79,22 @@ struct port_queue_lcore_map {
 };
 portid_t netif_max_pid;
 queueid_t netif_max_qid;
+
+//存储port-queue-lcore映射关系的哈希表
 struct port_queue_lcore_map pql_map[NETIF_MAX_PORTS];
 
 static portid_t port_id_end = 0;
 static uint16_t g_nports;
 
+//存储从配置文件中解析出来的端口配置信息
 static struct list_head port_list;      /* device configurations from cfgfile */
 static struct list_head worker_list;    /* lcore configurations from cfgfile */
 
 #define NETIF_PORT_TABLE_BITS 8
 #define NETIF_PORT_TABLE_BUCKETS (1 << NETIF_PORT_TABLE_BITS)
 #define NETIF_PORT_TABLE_MASK (NETIF_PORT_TABLE_BUCKETS - 1)
+
+//port_tab和port_ntab是什么作用呢？
 static struct list_head port_tab[NETIF_PORT_TABLE_BUCKETS]; /* hashed by id */
 static struct list_head port_ntab[NETIF_PORT_TABLE_BUCKETS]; /* hashed by name */
 
@@ -115,6 +120,9 @@ static void netif_pktmbuf_pool_init(){
 static int timer_sched_interval_us;
 
 /****************************************** lcore  conf ********************************************/
+/* per-lcore statistics */
+static struct netif_lcore_stats lcore_stats[NDF_MAX_LCORE];
+
 /* per-lcore isolated reception queues */
 static struct list_head isol_rxq_tab[NDF_MAX_LCORE];
 
@@ -397,6 +405,7 @@ static inline void dump_lcore_role(void)
         strncat(results, bufs[role], sizeof(results) - strlen(results) - 1);
     }
 
+    //打印机器上每个核心的角色
     RTE_LOG(INFO, NETIF, "LCORE ROLES:\n%s\n", results);
 }
 
@@ -469,7 +478,11 @@ static inline uint16_t netif_rx_burst(portid_t pid, struct netif_queue_conf* qco
     int nrx = 0;
 
     nrx = rte_eth_rx_burst(pid, qconf->id, qconf->mbufs, NETIF_MAX_PKT_BURST);
-    RTE_LOG(DEBUG, NETIF, "port id: %u ,queue id:%u recv:%d\n", pid, qconf->id, nrx);
+    
+    // Log packet reception when packets are received
+    if (nrx > 0) {
+        RTE_LOG(INFO, NETIF, "port %u queue %u received %d packets\n", pid, qconf->id, nrx);
+    }
 
     return nrx;
 }
@@ -496,6 +509,22 @@ static void lcore_job_recv_fwd(void* arg __attribute__((unused)))
     }
 }
 
+static int timer_sched_interval_us;
+static void recv_on_isol_lcore(void *dump);
+
+static void lcore_job_timer_manage(void *args)
+{
+    static uint64_t tm_manager_time[NDF_MAX_LCORE] = { 0 };
+    uint64_t now = rte_get_timer_cycles();
+    portid_t cid = rte_lcore_id();
+
+    if (unlikely((now - tm_manager_time[cid]) * 1000000 / g_cycles_per_sec
+            > (uint64_t)timer_sched_interval_us)) {
+        rte_timer_manage();
+        tm_manager_time[cid] = now;
+    }
+}
+
 //网络工作任务的最大值
 #define NETIF_JOB_MAX   6
 
@@ -507,34 +536,26 @@ static struct ndf_lcore_job_array netif_jobs[NETIF_JOB_MAX] = {
         .job.func = lcore_job_recv_fwd,//收包和转发
     },
 
-    /* [1] = {
-        .role = LCORE_ROLE_FWD_WORKER,
-        .job.name = "xmit",
-        .job.type = LCORE_JOB_LOOP,
-        .job.func = lcore_job_xmit,//发送数据包
-    }, 
-
-    [2] = {
+    [1] = {
         .role = LCORE_ROLE_FWD_WORKER,
         .job.name = "timer_manage",
         .job.type = LCORE_JOB_LOOP,
         .job.func = lcore_job_timer_manage,
     },
 
-    [3] = {
+    [2] = {
         .role = LCORE_ROLE_ISOLRX_WORKER,
         .job.name = "isol_pkt_rcv",
         .job.type = LCORE_JOB_LOOP,
         .job.func = recv_on_isol_lcore,
     },
 
-    [4] = {
+    [3] = {
         .role = LCORE_ROLE_MASTER,
         .job.name = "timer_manage",
         .job.type = LCORE_JOB_LOOP,
         .job.func = lcore_job_timer_manage,
     },
-    */
 };
 
 static int port_rx_queues_get(portid_t pid)
@@ -703,6 +724,70 @@ static int check_lcore_conf(int lcores, const struct netif_lcore_conf *lcore_con
     return LCONFCHK_OK;
 }
 
+static inline void lcore_stats_burst(struct netif_lcore_stats *stats,
+                                     size_t len)
+{
+    stats->pktburst++;
+
+    if (0 == len) {
+        stats->zpktburst++;
+        stats->z2hpktburst++;
+    } else if (len <= NETIF_MAX_PKT_BURST/2) {
+        stats->z2hpktburst++;
+    } else if (len < NETIF_MAX_PKT_BURST) {
+        stats->h2fpktburst++;
+    } else {
+        stats->h2fpktburst++;
+        stats->fpktburst++;
+    }
+}
+
+inline static void recv_on_isol_lcore(void *dump)
+{
+    struct rx_partner *isol_rxq;
+    struct rte_mbuf *mbufs[NETIF_MAX_PKT_BURST];
+    unsigned int rx_len, qspc;
+    unsigned int i; 
+    int res;
+    lcoreid_t cid = rte_lcore_id();
+
+    list_for_each_entry(isol_rxq, &isol_rxq_tab[cid], lnode) {
+        assert(isol_rxq->cid == cid);
+again:
+        rx_len = rte_eth_rx_burst(isol_rxq->pid, isol_rxq->qid,
+                mbufs, NETIF_MAX_PKT_BURST);
+        /* It is safe to reuse lcore_stats for isolate recieving. Isolate recieving
+         * always lays on different lcores from packet processing. */
+        lcore_stats_burst(&lcore_stats[cid], rx_len);
+
+        if (rx_len == 0)
+            continue;
+
+        lcore_stats[cid].ipackets += rx_len;
+        for (i = 0; i < rx_len; i++)
+            lcore_stats[cid].ibytes += mbufs[i]->pkt_len;
+
+        res = rte_ring_enqueue_bulk(isol_rxq->rb, (void *const * )mbufs, rx_len, &qspc);
+        if ((unsigned int)res < rx_len) {
+            RTE_LOG(WARNING, NETIF, "%s [%d]: %d packets failed to enqueue,"
+                    " space avail: %u\n", __func__, cid, rx_len - res, qspc);
+            lcore_stats[cid].dropped += (rx_len - res);
+            for (i = res; i < rx_len; i++)
+                rte_pktmbuf_free(mbufs[i]);
+        }
+
+        if (rx_len >= NETIF_MAX_PKT_BURST && rte_ring_free_count(isol_rxq->rb) >= NETIF_MAX_PKT_BURST)
+            goto again;
+    }
+}
+
+inline static bool is_isol_rxq_lcore(lcoreid_t cid)
+{
+    assert(cid < NDF_MAX_LCORE);
+
+    return !list_empty(&isol_rxq_tab[cid]);
+}
+
 static void netif_lcore_init(){
     size_t i;
     int err;
@@ -718,6 +803,8 @@ static void netif_lcore_init(){
         else
             snprintf(&buf2[strlen(buf2)], sizeof(buf2)-strlen(buf2), "%4d", cid);
     }
+
+    /* print lcore enable or disable status */
     RTE_LOG(INFO, NETIF, "LCORE STATUS\n\tenabled: %s\n\tdisabled: %s\n", buf1, buf2);
 
     /* init isolate rxqueue table */
@@ -770,6 +857,7 @@ static inline struct port_conf_stream *get_port_conf_stream(const char *name)
     return NULL;
 }
 
+//rss配置解析处理函数
 static int rss_resolve_proc(char *rss)
 {
     int rss_value = 0;
@@ -1209,6 +1297,7 @@ static inline void setup_dev_of_flags(struct netif_port *port)
         port->flag |= NETIF_PORT_FLAG_RX_IP_CSUM_OFFLOAD;
 }
 
+//通过id查找端口信息
 struct netif_port* netif_port_get(portid_t id)
 {
     int hash = port_tab_hashkey(id);
@@ -1224,6 +1313,7 @@ struct netif_port* netif_port_get(portid_t id)
     return NULL;
 }
 
+//通过端口名称查找端口信息
 struct netif_port* netif_port_get_by_name(const char *name)
 {
     int nhash;
@@ -1242,6 +1332,7 @@ struct netif_port* netif_port_get_by_name(const char *name)
     return NULL;
 }
 
+//打印逻辑核心的配置信息
 int netif_print_lcore_conf(char *buf, int *len, bool is_all, portid_t pid)
 {
     int i, j;
@@ -1326,8 +1417,10 @@ static int build_port_queue_lcore_map(void)
     /* fill in map struct */
     i = 0;
     while (lcore_conf[i].nports > 0) {
+        //获取当前逻辑核心ID
         cid = lcore_conf[i].id;
         for (j = 0; j < lcore_conf[i].nports; j++) {
+            //获取端口id
             pid = lcore_conf[i].pqs[j].id;
             if (pid > netif_max_pid)
                 netif_max_pid = pid;
@@ -1543,13 +1636,15 @@ int netif_port_register(struct netif_port *port)
     if (unlikely(NULL == port))
         return ENDF_INVAL;
 
+    //通过id计算hash值
     hash = port_tab_hashkey(port->id);
     list_for_each_entry(cur, &port_tab[hash], list) {
         if (cur->id == port->id || strcmp(cur->name, port->name) == 0) {
             return ENDF_EXIST;
         }
     }
-
+    
+    //通过name计算hash值
     nhash = port_ntab_hashkey(port->name, sizeof(port->name));
     list_for_each_entry(cur, &port_ntab[hash], nlist) {
         if (cur->id == port->id || strcmp(cur->name, port->name) == 0) {
@@ -1557,8 +1652,9 @@ int netif_port_register(struct netif_port *port)
         }
     }
 
-    list_add_tail(&port->list, &port_tab[hash]);
-    list_add_tail(&port->nlist, &port_ntab[nhash]);
+    //添加到hash表中
+    list_add_tail(&port->list, &port_tab[hash]);    //按id
+    list_add_tail(&port->nlist, &port_ntab[nhash]); //按name名称
     g_nports++;
 
     /* if (port->netif_ops->op_init) {
@@ -1572,6 +1668,7 @@ int netif_port_register(struct netif_port *port)
     return ENDF_OK;
 }
 
+//哈希表的初始化
 static inline void port_tab_init(void)
 {
     int i;
@@ -1579,6 +1676,7 @@ static inline void port_tab_init(void)
         INIT_LIST_HEAD(&port_tab[i]);
 }
 
+//哈希表的初始化
 static inline void port_ntab_init(void)
 {
     int i;
@@ -1600,6 +1698,7 @@ static void dpdk_port_setup(struct netif_port *dev)
     setup_dev_of_flags(dev);
 }
 
+//端口名称分配
 static inline int port_name_alloc(portid_t pid, char *pname, size_t buflen)
 {
     assert(pname && buflen > 0);
@@ -1641,21 +1740,10 @@ static void netif_port_init(void)
         rte_exit(EXIT_FAILURE, "No dpdk ports found!\n"
                 "Possibly nic or driver is not dpdk-compatible.\n");
 
-    // 设置物理端口范围，这是DPVS的设计模式
     phy_pid_end = nports;
 
-    //这块需要配置文件中配置，目前没有配置文件，所以需要手动配置
     nports_cfg = list_elems(&port_list);
     RTE_LOG(INFO, NETIF, "DPDK detected %d ports, config file has %d ports\n", nports, nports_cfg);
-    
-    // 调试：打印port_list的内容
-    if (nports_cfg == 0) {
-        RTE_LOG(WARNING, NETIF, "port_list is empty! Checking if device_handler was called...\n");
-        struct port_conf_stream *port_cfg;
-        list_for_each_entry(port_cfg, &port_list, port_list_node) {
-            RTE_LOG(INFO, NETIF, "Found port config: %s (port_id=%d)\n", port_cfg->name, port_cfg->port_id);
-        }
-    }
     
     if (nports_cfg < nports)
         rte_exit(EXIT_FAILURE, "ports in DPDK RTE (%d) != ports in setting.conf(%d)\n",
@@ -1664,17 +1752,21 @@ static void netif_port_init(void)
     port_tab_init();
     port_ntab_init();
 
+    // Iterate through each port
     for (pid = 0; pid < nports; pid++) {
+        // Allocate port name
         if (port_name_alloc(pid, ifname, sizeof(ifname)) != ENDF_OK)
             rte_exit(EXIT_FAILURE, "Port name allocation failed, exiting...\n");
 
         /* queue number will be filled on device start */
         port = NULL;
+        // Create port structure
         if (is_physical_port(pid))
             port = netif_alloc(pid, sizeof(union netif_bond), ifname, 0, 0, dpdk_port_setup);
         if (!port)
             rte_exit(EXIT_FAILURE, "Port allocation failed, exiting...\n");
 
+        // Register port
         if (netif_port_register(port) < 0)
             rte_exit(EXIT_FAILURE, "Port registration failed, exiting...\n");
     }

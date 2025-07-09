@@ -18,6 +18,7 @@ typedef enum ndf_lcore_role_type {
     LCORE_ROLE_MAX//角色类型的最大值，用于边界检查
 } ndf_lcore_role_t;
 
+extern uint64_t g_cycles_per_sec;
 extern ndf_lcore_role_t g_lcore_role[NDF_MAX_LCORE];
 extern int g_lcore_index2id[NDF_MAX_LCORE];
 extern int g_lcore_id2index[NDF_MAX_LCORE];

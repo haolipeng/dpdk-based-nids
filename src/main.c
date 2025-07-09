@@ -168,8 +168,7 @@ static int parse_app_args(int argc, char **argv)
 
 int main(int argc, char *argv[])
 {
-    printf("Hello World! Welcome NetDefender.\n");
-    
+    //1.check dpdk version
     dpdk_version_check();
 
     int err, nports;
@@ -239,22 +238,29 @@ int main(int argc, char *argv[])
             pql_conf_buf);
 
     /* start slave worker threads */
+    RTE_LOG(INFO, MAIN, "Starting slave worker threads...\n");
     ndf_lcore_start(0);
+    RTE_LOG(INFO, MAIN, "Slave worker threads started\n");
 
     /* write pid file */
-    if(pidfile_write(netdefender_pid_file, getpid())){
+    if(!pidfile_write(netdefender_pid_file, getpid())){
+        RTE_LOG(ERR, MAIN, "Failed to write pid file\n");
         goto end;
     }
+    RTE_LOG(INFO, MAIN, "PID file written successfully\n");
 
     netdefender_state_set(NET_DEFENDER_STATE_NORMAL);
 
     /* start control plane thread loop */
+    RTE_LOG(INFO, MAIN, "Starting master control plane thread...\n");
     ndf_lcore_start(1);
+    RTE_LOG(INFO, MAIN, "Master control plane thread returned (this should not happen!)\n");
     
     // TODO: 初始化检测引擎
     
     // TODO: 主事件循环
 end:
+    RTE_LOG(INFO, MAIN, "Program ending, cleaning up...\n");
     netdefender_state_set(NET_DEFENDER_STATE_FINISH);
     modules_term();
     
