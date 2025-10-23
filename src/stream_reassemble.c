@@ -343,9 +343,13 @@ static int process_segment_queue(stream_buffer_t *sb)
 
         /* Check if we have space in buffer */
         if (sb->data_len + seg->payload_len > sb->max_buffer_size) {
-            RTE_LOG(WARNING, REASSEMBLE,
-                    "Buffer full (%u/%u), cannot add %u bytes\n",
-                    sb->data_len, sb->max_buffer_size, seg->payload_len);
+            static __thread uint64_t buffer_full_count = 0;
+            if (++buffer_full_count % 100 == 1) {
+                RTE_LOG(WARNING, REASSEMBLE,
+                        "Reassembly buffer overflow: %u/%u bytes used, cannot add %u bytes (count: %lu)\n",
+                        sb->data_len, sb->max_buffer_size, seg->payload_len, buffer_full_count);
+            }
+            reassembly_stats.segments_dropped++;
             break;  /* Buffer full */
         }
 
@@ -355,6 +359,14 @@ static int process_segment_queue(stream_buffer_t *sb)
         sb->next_seq += seg->payload_len;
         reassembled_bytes += seg->payload_len;
         sb->total_reassembled += seg->payload_len;
+
+        /* 周期性记录成功重组 */
+        static __thread uint64_t reassembly_count = 0;
+        if (unlikely(++reassembly_count % 10000 == 0)) {
+            RTE_LOG(INFO, REASSEMBLE,
+                    "Stream reassembly: %lu segments processed, %lu bytes total\n",
+                    reassembly_count, reassembly_stats.bytes_reassembled);
+        }
 
         /* Remove segment from queue */
         sb->seg_list = seg->next;

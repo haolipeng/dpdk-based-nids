@@ -404,6 +404,15 @@ int rule_engine_inspect_http(rule_engine_t *engine, struct flow *flow,
 
     engine->stats.packets_inspected++;
 
+    /* 周期性输出规则评估统计 */
+    static __thread uint64_t http_inspections = 0;
+    if (unlikely(++http_inspections % 10000 == 0)) {
+        RTE_LOG(INFO, RULE_ENGINE,
+                "HTTP rule evaluation: %lu inspections, %lu total packets, %lu alerts\n",
+                http_inspections, engine->stats.packets_inspected,
+                engine->stats.alerts_generated);
+    }
+
     int alerts = 0;
     char detail[256];
 

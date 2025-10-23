@@ -346,6 +346,12 @@ static void detect_port_scan(behavioral_detector_t *detector, flow_t *flow,
             rule_engine_create_custom_alert(detector->rule_engine, &scan_rule,
                                            flow, detail);
 
+            /* 详细记录端口扫描检测 */
+            RTE_LOG(NOTICE, BEHAVIORAL,
+                    "Port scan detected: src=%s ports=%u time=%lds syn_scan=%s syn_ack=%u\n",
+                    src_ip_str, tracker->port_count, (long)(now - tracker->first_seen),
+                    tracker->is_syn_scan ? "yes" : "no", tracker->syn_ack_count);
+
             tracker->alerted = true;
             detector->scans_detected++;
 
@@ -475,6 +481,13 @@ static void detect_brute_force_http(behavioral_detector_t *detector, flow_t *flo
 
         rule_engine_create_custom_alert(detector->rule_engine, &brute_rule,
                                        flow, detail);
+
+        /* 记录检测触发 */
+        RTE_LOG(NOTICE, BEHAVIORAL,
+                "Brute force detected: target=%s:%u attempts=%u (401: %u, 403: %u) in %lds\n",
+                target_ip_str, flow->dst_port, tracker->failed_attempts,
+                tracker->proto.http.http_401_count, tracker->proto.http.http_403_count,
+                (long)(now - tracker->window_start));
 
         tracker->alerted = true;
         detector->brute_forces_detected++;

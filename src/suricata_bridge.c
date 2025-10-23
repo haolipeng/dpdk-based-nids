@@ -167,6 +167,16 @@ int process_packet(struct rte_mbuf *mbuf, unsigned int lcore_id)
                         }
 
                         (*attempts)++;
+
+                        /* 达到最大检测尝试次数但仍未识别 */
+                        if (*attempts >= FLOW_ALPROTO_MAX_ATTEMPTS && flow->alproto == APP_PROTO_UNKNOWN) {
+                            static __thread uint64_t unknown_proto_count = 0;
+                            if (++unknown_proto_count % 1000 == 1) {
+                                RTE_LOG(INFO, BRIDGE,
+                                        "[lcore %u] Protocol remains unknown after %d detection attempts (count: %lu)\n",
+                                        lcore_id, FLOW_ALPROTO_MAX_ATTEMPTS, unknown_proto_count);
+                            }
+                        }
                     }
                 }
             }

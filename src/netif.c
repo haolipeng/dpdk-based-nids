@@ -501,6 +501,7 @@ static void lcore_job_recv_fwd(void* arg __attribute__((unused)))
     /* Flow cleanup timer (per lcore) */
     static __thread struct timeval last_cleanup_ts = {0, 0};
     static __thread int cleanup_initialized = 0;
+    static __thread uint64_t last_error_count = 0;
     struct timeval now;
 
     cid = rte_lcore_id();
@@ -509,6 +510,7 @@ static void lcore_job_recv_fwd(void* arg __attribute__((unused)))
     if (unlikely(!cleanup_initialized)) {
         gettimeofday(&last_cleanup_ts, NULL);
         cleanup_initialized = 1;
+        RTE_LOG(INFO, NETIF, "[lcore %u] Packet processing loop started\n", cid);
     }
 
     // 遍历当前lcore负责的所有端口
@@ -517,6 +519,12 @@ static void lcore_job_recv_fwd(void* arg __attribute__((unused)))
         dev = netif_port_get(pid);
 
         if (unlikely(!dev)) {
+            /* 周期性日志避免日志洪泛 */
+            static __thread uint64_t invalid_port_count = 0;
+            if (++invalid_port_count % 100000 == 1) {
+                RTE_LOG(ERR, NETIF, "[lcore %u] Port %u is unavailable (count: %lu)\n",
+                        cid, pid, invalid_port_count);
+            }
             continue;
         }
 
@@ -560,6 +568,15 @@ static void lcore_job_recv_fwd(void* arg __attribute__((unused)))
                             lcore_stats[cid].ipackets,
                             lcore_stats[cid].ibytes,
                             lcore_stats[cid].errors);
+
+                    /* 错误率监控 - 如果错误数显著增长则告警 */
+                    uint64_t error_delta = lcore_stats[cid].errors - last_error_count;
+                    if (error_delta > 100) {  /* 每10000个包中超过100个错误 (>1%) */
+                        RTE_LOG(WARNING, NETIF,
+                                "[lcore %u] High error rate detected: %lu errors in last 10000 packets (%.2f%%)\n",
+                                cid, error_delta, (error_delta * 100.0) / 10000);
+                    }
+                    last_error_count = lcore_stats[cid].errors;
                 }
             }
         }

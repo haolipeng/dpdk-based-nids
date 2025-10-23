@@ -281,10 +281,21 @@ flow_t *flow_get(const packet_info_t *pkt_info)
 
     /* Search for existing flow */
     flow = bucket->head;
+    int chain_depth = 0;
     while (flow != NULL) {
+        chain_depth++;
         if (flow->flow_hash == hash && flow_match(flow, pkt_info)) {
             found = 1;
             flow->use_cnt++;
+            /* 记录长链查找(可能的哈希冲突) */
+            if (unlikely(chain_depth > 10)) {
+                static __thread uint64_t long_chain_count = 0;
+                if (++long_chain_count % 1000 == 1) {
+                    RTE_LOG(WARNING, FLOW,
+                            "Hash chain depth %d detected in bucket %u (possible collision, count: %lu)\n",
+                            chain_depth, bucket_idx, long_chain_count);
+                }
+            }
             break;
         }
         flow = flow->next;
@@ -301,6 +312,12 @@ flow_t *flow_get(const packet_info_t *pkt_info)
 
         flow = flow_alloc();
         if (flow == NULL) {
+            static __thread uint64_t alloc_fail_count = 0;
+            if (++alloc_fail_count % 100 == 1) {
+                RTE_LOG(ERR, FLOW,
+                        "Flow allocation failed (memory exhausted, count: %lu)\n",
+                        alloc_fail_count);
+            }
             pthread_mutex_unlock(&bucket->lock);
             return NULL;
         }
