@@ -4,6 +4,7 @@
 #include "cfgfile.h"
 #include "scheduler.h"
 #include "netif.h"
+#include "timer.h"
 #include "vector.h"
 #include "parser.h"
 
@@ -19,7 +20,7 @@ static void keyword_value_init(void)
     /* init keywords value here */
 
     netif_keyword_value_init();
-    //timer_keyword_value_init();
+    ndf_timer_keyword_value_init();
 }
 
 static vector_t install_keywords(void)
@@ -28,7 +29,7 @@ static vector_t install_keywords(void)
     //install_global_keywords();
 
     install_netif_keywords();
-    //install_timer_keywords();//TODO:
+    ndf_install_timer_keywords();
 
     return g_keywords;
 }

@@ -19,6 +19,13 @@ target_include_directories(dpdk_nids PRIVATE
     ${DPDK_INCLUDE_DIRS}
 )
 
+# 如果启用了Suricata，添加Suricata的包含目录
+if(ENABLE_SURICATA)
+    target_include_directories(dpdk_nids PRIVATE
+        ${SURICATA_INCLUDE_DIRS}
+    )
+endif()
+
 # 设置DPDK特定的编译选项
 target_compile_options(dpdk_nids PRIVATE
     -march=native
@@ -39,14 +46,29 @@ endif()
 target_link_libraries(dpdk_nids PRIVATE
     # 使用根目录配置的DPDK库
     ${DPDK_LIBRARIES}
-    
+
     # 系统依赖库
     numa
     pthread
     dl
     m
     rt
+    crypto  # OpenSSL crypto library for MD5 (JA3)
 )
+
+# 如果启用了Suricata，链接Suricata库及其依赖
+if(ENABLE_SURICATA)
+    target_link_libraries(dpdk_nids PRIVATE
+        ${SURICATA_LIBRARY}
+        ${YAML_LIBRARIES}
+        ${JANSSON_LIBRARIES}
+        ${PCRE2_LIBRARIES}
+        ${MAGIC_LIBRARIES}
+        pcap
+        z
+        lz4
+    )
+endif()
 
 # 设置链接器选项
 set_target_properties(dpdk_nids PROPERTIES

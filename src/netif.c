@@ -7,6 +7,8 @@
 #include "vector.h"
 #include "parser.h"
 #include "timer.h"
+#include "suricata_bridge.h"
+#include "flow.h"
 
 #define NETIF_PKTPOOL_NB_MBUF_DEF   65535
 #define NETIF_PKTPOOL_NB_MBUF_MIN   1023
@@ -489,23 +491,90 @@ static inline uint16_t netif_rx_burst(portid_t pid, struct netif_queue_conf* qco
 
 static void lcore_job_recv_fwd(void* arg __attribute__((unused)))
 {
-    int i,j;
+    int i, j, k;
     portid_t pid;
     lcoreid_t cid;
     struct netif_queue_conf *qconf;
+    struct netif_port *dev;
+    uint16_t nb_rx;
+
+    /* Flow cleanup timer (per lcore) */
+    static __thread struct timeval last_cleanup_ts = {0, 0};
+    static __thread int cleanup_initialized = 0;
+    struct timeval now;
 
     cid = rte_lcore_id();
+
+    /* Initialize cleanup timestamp on first call */
+    if (unlikely(!cleanup_initialized)) {
+        gettimeofday(&last_cleanup_ts, NULL);
+        cleanup_initialized = 1;
+    }
+
+    // 遍历当前lcore负责的所有端口
     for (i = 0; i < lcore_conf[lcore2index[cid]].nports; i++) {
         pid = lcore_conf[lcore2index[cid]].pqs[i].id;
+        dev = netif_port_get(pid);
 
+        if (unlikely(!dev)) {
+            continue;
+        }
+
+        // 遍历每个端口的所有RX队列
         for (j = 0; j < lcore_conf[lcore2index[cid]].pqs[i].nrxq; j++) {
             qconf = &lcore_conf[lcore2index[cid]].pqs[i].rxqs[j];
 
-            qconf->len = netif_rx_burst(pid, qconf);
+            // 从网卡接收数据包（最多32个）
+            nb_rx = netif_rx_burst(pid, qconf);
+            qconf->len = nb_rx;
 
-            //TODO:need to process packets
-            //lcore_process_packets(qconf->mbufs, cid, qconf->len, 0);
+            if (likely(nb_rx > 0)) {
+                // 更新统计信息
+                lcore_stats[cid].ipackets += nb_rx;
+
+                // 计算字节数
+                for (k = 0; k < nb_rx; k++) {
+                    lcore_stats[cid].ibytes += qconf->mbufs[k]->pkt_len;
+                }
+
+                // 处理接收到的数据包：解析 + 分析
+                for (k = 0; k < nb_rx; k++) {
+                    struct rte_mbuf *mbuf = qconf->mbufs[k];
+
+                    // 调用packet decode处理
+                    if (process_packet(mbuf, cid) != 0) {
+                        /* 处理失败 */
+                        lcore_stats[cid].errors++;
+                    }
+
+                    // 释放mbuf
+                    rte_pktmbuf_free(mbuf);
+                }
+
+                // 可选: 输出调试信息(低频率)
+                if (unlikely(lcore_stats[cid].ipackets % 10000 == 0)) {
+                    RTE_LOG(INFO, NETIF,
+                            "[lcore %u] port %u queue %u: processed %lu packets, "
+                            "%lu bytes, %lu errors\n",
+                            cid, pid, qconf->id,
+                            lcore_stats[cid].ipackets,
+                            lcore_stats[cid].ibytes,
+                            lcore_stats[cid].errors);
+                }
+            }
         }
+    }
+
+    /* Periodic flow cleanup (every 10 seconds) */
+    gettimeofday(&now, NULL);
+    if (unlikely(now.tv_sec - last_cleanup_ts.tv_sec >= 10)) {
+        int removed = flow_cleanup_expired(&now);
+        if (removed > 0) {
+            RTE_LOG(INFO, NETIF,
+                    "[lcore %u] Flow cleanup: removed %d expired flows\n",
+                    cid, removed);
+        }
+        last_cleanup_ts = now;
     }
 }
 

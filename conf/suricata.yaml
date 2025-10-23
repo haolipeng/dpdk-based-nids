@@ -1,0 +1,373 @@
+# NetDefender Suricata Configuration
+# Version: 1.0
+# Date: 2025-10-22
+
+%YAML 1.1
+---
+
+# Global settings
+vars:
+  address-groups:
+    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
+    EXTERNAL_NET: "!$HOME_NET"
+
+    HTTP_SERVERS: "$HOME_NET"
+    SMTP_SERVERS: "$HOME_NET"
+    SQL_SERVERS: "$HOME_NET"
+    DNS_SERVERS: "$HOME_NET"
+    TELNET_SERVERS: "$HOME_NET"
+    AIM_SERVERS: "$EXTERNAL_NET"
+    DC_SERVERS: "$HOME_NET"
+    DNP3_SERVER: "$HOME_NET"
+    DNP3_CLIENT: "$HOME_NET"
+    MODBUS_CLIENT: "$HOME_NET"
+    MODBUS_SERVER: "$HOME_NET"
+    ENIP_CLIENT: "$HOME_NET"
+    ENIP_SERVER: "$HOME_NET"
+
+  port-groups:
+    HTTP_PORTS: "80"
+    SHELLCODE_PORTS: "!80"
+    ORACLE_PORTS: 1521
+    SSH_PORTS: 22
+    DNP3_PORTS: 20000
+    MODBUS_PORTS: 502
+    FILE_DATA_PORTS: "[$HTTP_PORTS,110,143]"
+    FTP_PORTS: 21
+    GENEVE_PORTS: 6081
+    VXLAN_PORTS: 4789
+    TEREDO_PORTS: 3544
+
+# Default logging level
+default-log-level: info
+
+# Stats configuration
+stats:
+  enabled: yes
+  interval: 10
+
+# Output configuration
+outputs:
+  # Fast log (alerts only, one line per alert)
+  - fast:
+      enabled: yes
+      filename: /var/log/netdefender/fast.log
+      append: yes
+
+  # EVE JSON log (structured logging)
+  - eve-log:
+      enabled: yes
+      filetype: regular
+      filename: /var/log/netdefender/eve.json
+
+      types:
+        - alert:
+            payload: yes
+            payload-buffer-size: 4kb
+            payload-printable: yes
+            packet: yes
+            metadata: yes
+            http-body: yes
+            http-body-printable: yes
+
+        - anomaly:
+            enabled: yes
+            types:
+              decode: yes
+              stream: yes
+              applayer: yes
+
+        - http:
+            extended: yes
+
+        - dns:
+            query: yes
+            answer: yes
+
+        - tls:
+            extended: yes
+            session-resumption: yes
+
+        - files:
+            force-magic: yes
+
+        - flow:
+            enabled: no
+
+        - stats:
+            totals: yes
+            threads: yes
+            deltas: yes
+
+  # Unified2 log (for Barnyard2 integration if needed)
+  - unified2-alert:
+      enabled: no
+
+  # HTTP log
+  - http-log:
+      enabled: yes
+      filename: /var/log/netdefender/http.log
+      append: yes
+
+  # TLS log
+  - tls-log:
+      enabled: yes
+      filename: /var/log/netdefender/tls.log
+      append: yes
+      extended: yes
+
+  # DNS log
+  - dns-log:
+      enabled: yes
+      filename: /var/log/netdefender/dns.log
+      append: yes
+
+  # Stats log
+  - stats:
+      enabled: yes
+      filename: /var/log/netdefender/stats.log
+      append: yes
+      totals: yes
+      threads: yes
+
+# Logging settings
+logging:
+  default-log-level: info
+  default-output-filter:
+
+  outputs:
+    - console:
+        enabled: yes
+
+    - file:
+        enabled: yes
+        level: info
+        filename: /var/log/netdefender/suricata.log
+
+    - syslog:
+        enabled: no
+
+# Application layer protocols
+app-layer:
+  protocols:
+    # HTTP
+    http:
+      enabled: yes
+      memcap: 64mb
+
+    # TLS/SSL
+    tls:
+      enabled: yes
+      detection-ports:
+        dp: 443
+
+    # DNS (both TCP and UDP)
+    dns:
+      tcp:
+        enabled: yes
+        detection-ports:
+          dp: 53
+      udp:
+        enabled: yes
+        detection-ports:
+          dp: 53
+
+    # SMTP
+    smtp:
+      enabled: yes
+      detection-ports:
+        dp: 25
+      raw-extraction: no
+      mime:
+        decode-mime: yes
+        decode-base64: yes
+        decode-quoted-printable: yes
+        header-value-depth: 2000
+        extract-urls: yes
+        body-md5: no
+
+    # FTP
+    ftp:
+      enabled: yes
+      memcap: 64mb
+
+    # SSH
+    ssh:
+      enabled: yes
+
+    # SMB
+    smb:
+      enabled: yes
+      detection-ports:
+        dp: 139, 445
+
+    # NFS
+    nfs:
+      enabled: yes
+
+    # TFTP
+    tftp:
+      enabled: yes
+
+    # IKE
+    ike:
+      enabled: yes
+
+    # KRB5
+    krb5:
+      enabled: yes
+
+    # DHCP
+    dhcp:
+      enabled: yes
+
+    # RDP
+    rdp:
+      enabled: yes
+
+# TCP stream reassembly settings
+stream:
+  memcap: 512mb
+  checksum-validation: yes
+  inline: no
+  reassembly:
+    memcap: 1gb
+    depth: 1mb
+    toserver-chunk-size: 2560
+    toclient-chunk-size: 2560
+    randomize-chunk-size: yes
+
+# IP defragmentation settings
+defrag:
+  memcap: 512mb
+  hash-size: 65536
+  trackers: 65535
+  max-frags: 65535
+  prealloc: yes
+  timeout: 60
+
+# Flow settings
+flow:
+  memcap: 512mb
+  hash-size: 65536
+  prealloc: 10000
+  emergency-recovery: 30
+
+# Host table settings
+host:
+  hash-size: 4096
+  prealloc: 1000
+  memcap: 32mb
+
+# Decoder settings
+decoder:
+  # Teredo decoder
+  teredo:
+    enabled: yes
+    ports: $TEREDO_PORTS
+
+  # VXLAN decoder
+  vxlan:
+    enabled: yes
+    ports: $VXLAN_PORTS
+
+  # Geneve decoder
+  geneve:
+    enabled: yes
+    ports: $GENEVE_PORTS
+
+# Detection engine settings
+detect:
+  profile: medium
+  custom-values:
+    toclient-groups: 3
+    toserver-groups: 25
+  sgh-mpm-context: auto
+  inspection-recursion-limit: 3000
+
+  prefilter:
+    default: mpm
+
+  grouping:
+
+  profiling:
+    grouping:
+      dump-to-disk: no
+      include-rules: no
+      include-mpm-stats: no
+
+# Multi-threading settings (will be configured from DPDK lcore count)
+threading:
+  set-cpu-affinity: no  # DPDK already handles CPU affinity
+  cpu-affinity:
+  detect-thread-ratio: 1.0
+
+# Packet capture settings (not used in DPDK mode, but required)
+pcap:
+  - interface: default
+
+# AF-PACKET settings (not used in DPDK mode)
+af-packet:
+  - interface: default
+
+# Performance tuning
+engine-analysis:
+  rules-fast-pattern: no
+  rules: no
+
+# Profiling (for performance analysis)
+profiling:
+  rules:
+    enabled: no
+    filename: /var/log/netdefender/rule_perf.log
+    append: yes
+    sort: avgticks
+    limit: 100
+    json: yes
+
+  keywords:
+    enabled: no
+    filename: /var/log/netdefender/keyword_perf.log
+    append: yes
+
+  prefilter:
+    enabled: no
+    filename: /var/log/netdefender/prefilter_perf.log
+    append: yes
+
+  rulegroups:
+    enabled: no
+    filename: /var/log/netdefender/rule_group_perf.log
+    append: yes
+
+  packets:
+    enabled: no
+    filename: /var/log/netdefender/packet_stats.log
+    append: yes
+    csv:
+      enabled: no
+      filename: /var/log/netdefender/packet_stats.csv
+
+  locks:
+    enabled: no
+    filename: /var/log/netdefender/lock_stats.log
+    append: yes
+
+  pcap-log:
+    enabled: no
+    filename: /var/log/netdefender/pcaplog_stats.log
+    append: yes
+
+# Rule files
+default-rule-path: /etc/netdefender/rules
+rule-files:
+  - suricata.rules
+
+# Classification configuration
+classification-file: /etc/netdefender/classification.config
+
+# Reference configuration
+reference-config-file: /etc/netdefender/reference.config
+
+# Threshold configuration
+threshold-file: /etc/netdefender/threshold.config

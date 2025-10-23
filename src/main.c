@@ -9,8 +9,12 @@
 #include "common.h"
 #include "pidfile.h"
 #include "scheduler.h"
+#include "timer.h"
 #include "netif.h"
 #include "cfgfile.h"
+#include "flow.h"
+#include "stream_reassemble.h"
+#include "proto_detect.h"
 
 #define RTE_LOGTYPE_MAIN RTE_LOGTYPE_USER1
 
@@ -30,6 +34,8 @@ static void dpdk_version_check(void)
                     ndf_scheduler_init, ndf_scheduler_term),            \
         NET_DEFENDER_MODULE(MODULE_GLOBAL_DATA, "global data",          \
                     global_data_init,    global_data_term),             \
+        NET_DEFENDER_MODULE(MODULE_TIMER,       "timer",                \
+                    ndf_timer_init,      ndf_timer_term),               \
         NET_DEFENDER_MODULE(MODULE_CFG,         "config file",          \
                     cfgfile_init,        cfgfile_term),                 \
         NET_DEFENDER_MODULE(MODULE_NETIF,       "netif",                \
@@ -217,6 +223,38 @@ int main(int argc, char *argv[])
     //初始化各个子模块
     modules_init();
 
+    // 初始化Flow管理系统
+    RTE_LOG(INFO, MAIN, "Initializing flow management system...\n");
+    if (flow_init(65536, 1000000) != 0) {  /* 64K hash buckets, 1M max flows */
+        rte_exit(EXIT_FAILURE, "Failed to initialize flow management\n");
+    }
+    RTE_LOG(INFO, MAIN, "Flow management system initialized\n");
+
+    // 初始化TCP流重组系统
+    RTE_LOG(INFO, MAIN, "Initializing TCP stream reassembly...\n");
+    stream_config_t stream_cfg = {
+        .max_buffer_size = 256 * 1024,  /* 256 KB per stream */
+        .max_segments = 100,            /* Max 100 out-of-order segments */
+        .default_policy = OS_POLICY_LINUX,  /* Linux: favor new data on overlap */
+    };
+    if (stream_reassemble_init(&stream_cfg) != 0) {
+        rte_exit(EXIT_FAILURE, "Failed to initialize stream reassembly\n");
+    }
+    RTE_LOG(INFO, MAIN, "TCP stream reassembly initialized (Linux policy)\n");
+
+    // 初始化协议检测系统
+    RTE_LOG(INFO, MAIN, "Initializing protocol detection...\n");
+    proto_detect_config_t proto_cfg = {
+        .max_inspect_depth = 4096,      /* 4KB inspection depth */
+        .enable_port_detection = true,
+        .enable_pattern_matching = true,
+        .enable_probing_parsers = true,
+    };
+    if (proto_detect_init(&proto_cfg) != 0) {
+        rte_exit(EXIT_FAILURE, "Failed to initialize protocol detection\n");
+    }
+    RTE_LOG(INFO, MAIN, "Protocol detection initialized\n");
+
     // 获取当前设备的可用端口数
     nports = ndf_rte_eth_dev_count();
     for(pid = 0; pid < nports; pid++){
@@ -262,7 +300,14 @@ int main(int argc, char *argv[])
 end:
     RTE_LOG(INFO, MAIN, "Program ending, cleaning up...\n");
     netdefender_state_set(NET_DEFENDER_STATE_FINISH);
+
+    /* Cleanup flow management */
+    flow_cleanup();
+
+    /* Cleanup stream reassembly */
+    stream_reassemble_cleanup();
+
     modules_term();
-    
+
     return 0;
 }

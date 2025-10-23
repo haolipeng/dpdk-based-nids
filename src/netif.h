@@ -109,6 +109,7 @@ struct netif_lcore_stats
     uint64_t opackets;          /* Total number of successfully transmitted packets. */
     uint64_t obytes;            /* Total number of successfully transmitted bytes. */
     uint64_t dropped;           /* Total number of dropped packets by software. */
+    uint64_t errors;            /* Total number of packet processing errors. */
 } __rte_cache_aligned;
 
 /************************ data type for NIC ****************************/
@@ -180,6 +181,20 @@ int netif_print_lcore_conf(char *buf, int *len, bool is_all, portid_t pid);
 struct netif_port *netif_alloc(portid_t id, size_t priv_size, const char *namefmt,
                                unsigned int nrxq, unsigned int ntxq,
                                void (*setup)(struct netif_port *));
+
+/**************************** Protocol Registration System ******************************/
+/* Protocol handler registration - for L3 protocol dispatch */
+struct pkt_type {
+    uint16_t             type;        /* Protocol type (e.g., 0x0800=IPv4, 0x0806=ARP) */
+    struct netif_port    *port;       /* Bound port (NULL for all ports) */
+    int (*func)(struct rte_mbuf *mbuf,
+                struct netif_port *port); /* Protocol handler function */
+    struct list_head     list;        /* Hash table list node */
+};
+
+/* Protocol registration functions */
+int netif_register_pkt(struct pkt_type *pt);
+int netif_unregister_pkt(struct pkt_type *pt);
 
 /**************************** general API ******************************/
 //call different base on the version of dpdk
